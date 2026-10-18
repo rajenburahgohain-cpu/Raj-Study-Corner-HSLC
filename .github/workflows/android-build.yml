@@ -103,9 +103,11 @@ jobs:
           app = (os.getenv('ADMOB_APP_ID') or '').strip() or test_app
           banner = (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip() or test_banner
           interstitial = (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip() or test_interstitial
-          using_test = not all((os.getenv('ADMOB_APP_ID') or '').strip(),
-                               (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip(),
-                               (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip())
+          using_test = not all((
+              (os.getenv('ADMOB_APP_ID') or '').strip(),
+              (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip(),
+              (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip(),
+          ))
           Path('www/admob-config.js').write_text(
               'window.ASSAMESE_SAHAYIKA_ADMOB = ' + json.dumps({
                   'bannerAdUnitId': banner,
