@@ -5,7 +5,7 @@ name: Build Assamese Sahayika APK and AAB (Signed Play Build)
   workflow_dispatch:
     inputs:
       create_new_upload_key:
-        description: "Create the first signing key only when explicitly requested"
+        description: "Create a new key only for the first setup"
         required: true
         type: boolean
         default: false
@@ -119,41 +119,24 @@ jobs:
           from pathlib import Path
           import re, os, json, html
 
-          paths = [
+          for p in [
               Path('android/variables.gradle'),
               Path('android/app/build.gradle')
-          ]
-
-          for p in paths:
+          ]:
               if not p.exists():
                   continue
-
               s = p.read_text(encoding='utf-8')
 
               if p.name == 'variables.gradle':
-                  s = re.sub(
-                      r'(compileSdkVersion\s*=\s*)\d+',
-                      r'\g<1>36', s
-                  )
-                  s = re.sub(
-                      r'(targetSdkVersion\s*=\s*)\d+',
-                      r'\g<1>36', s
-                  )
+                  s = re.sub(r'(compileSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
+                  s = re.sub(r'(targetSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
               else:
-                  s = re.sub(
-                      r'(compileSdk\s*(?:=|\s)\s*)\d+',
-                      r'\g<1>36', s
-                  )
-                  s = re.sub(
-                      r'(targetSdk\s*(?:=|\s)\s*)\d+',
-                      r'\g<1>36', s
-                  )
+                  s = re.sub(r'(compileSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
+                  s = re.sub(r'(targetSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
 
               p.write_text(s, encoding='utf-8')
 
-          manifest = Path(
-              'android/app/src/main/AndroidManifest.xml'
-          )
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
           s = manifest.read_text(encoding='utf-8')
           root = re.search(r'<manifest\b[^>]*>', s)
 
@@ -164,64 +147,32 @@ jobs:
               'android.permission.RECORD_AUDIO',
               'android.permission.MODIFY_AUDIO_SETTINGS'
           ]:
-              pat = (
-                  r'<uses-permission\b[^>]*android:name="'
-                  + re.escape(perm) + r'"'
-              )
-
+              pat = r'<uses-permission\b[^>]*android:name="' + re.escape(perm) + r'"'
               if not re.search(pat, s):
-                  s = (
-                      s[:root.end()]
-                      + f'\n    <uses-permission android:name="{perm}" />'
-                      + s[root.end():]
-                  )
+                  s = s[:root.end()] + f'\n    <uses-permission android:name="{perm}" />' + s[root.end():]
                   root = re.search(r'<manifest\b[^>]*>', s)
 
           test_app = 'ca-app-pub-3940256099942544~3347511713'
           app_id = (os.getenv('ADMOB_APP_ID') or '').strip() or test_app
 
-          meta = (
-              '<meta-data '
-              'android:name="com.google.android.gms.ads.APPLICATION_ID" '
-              'android:value="@string/admob_app_id" />'
-          )
-
-          pat = (
-              r'<meta-data\b'
-              r'(?=[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID")'
-              r'[^>]*/?>'
-          )
+          meta = '<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
+          pat = r'<meta-data\b(?=[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID")[^>]*/?>'
 
           if re.search(pat, s):
               s = re.sub(pat, meta, s, count=1)
           else:
               app = re.search(r'<application\b[^>]*>', s)
-
               if not app:
                   raise SystemExit('Android application tag missing')
-
               s = s[:app.end()] + '\n        ' + meta + s[app.end():]
 
           manifest.write_text(s, encoding='utf-8')
 
-          strings = Path(
-              'android/app/src/main/res/values/strings.xml'
-          )
+          strings = Path('android/app/src/main/res/values/strings.xml')
           strings.parent.mkdir(parents=True, exist_ok=True)
+          x = strings.read_text(encoding='utf-8') if strings.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
 
-          x = (
-              strings.read_text(encoding='utf-8')
-              if strings.exists()
-              else '<?xml version="1.0" encoding="utf-8"?>\n'
-                   '<resources>\n</resources>\n'
-          )
-
-          item = (
-              '<string name="admob_app_id">'
-              + html.escape(app_id, quote=True)
-              + '</string>'
-          )
-
+          item = '<string name="admob_app_id">' + html.escape(app_id, quote=True) + '</string>'
           pat = r'<string\s+name="admob_app_id">.*?</string>'
 
           if re.search(pat, x, re.S):
@@ -233,14 +184,8 @@ jobs:
 
           strings.write_text(x, encoding='utf-8')
 
-          banner = (
-              (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip()
-              or 'ca-app-pub-3940256099942544/6300978111'
-          )
-          inter = (
-              (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip()
-              or 'ca-app-pub-3940256099942544/1033173712'
-          )
+          banner = (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip() or 'ca-app-pub-3940256099942544/6300978111'
+          inter = (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip() or 'ca-app-pub-3940256099942544/1033173712'
 
           using_test = not all([
               (os.getenv('ADMOB_APP_ID') or '').strip(),
@@ -249,17 +194,15 @@ jobs:
           ])
 
           Path('www/admob-config.js').write_text(
-              'window.ASSAMESE_SAHAYIKA_ADMOB = '
-              + json.dumps({
+              'window.ASSAMESE_SAHAYIKA_ADMOB = ' + json.dumps({
                   'bannerAdUnitId': banner,
                   'interstitialAdUnitId': inter,
                   'usingTestIds': using_test
-              })
-              + ';\n',
+              }) + ';\n',
               encoding='utf-8'
           )
 
-          print('Android API, permissions and AdMob configuration prepared.')
+          print('Android API and permissions configured.')
           print('Test Ad IDs active:', using_test)
           PY
 
@@ -274,7 +217,7 @@ jobs:
             if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
                [ -z "${KEY_ALIAS:-}" ] || \
                [ -z "${KEY_PASSWORD:-}" ]; then
-              echo "::error::All four signing secrets are required."
+              echo "::error::All signing secrets are required."
               exit 1
             fi
 
@@ -295,23 +238,19 @@ jobs:
           else
             if [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
               echo "::error::KEYSTORE_BASE64 is missing."
-              echo "::error::No key was generated. Recover the old key or explicitly enable first-time key creation."
+              echo "::error::No key created. Enable first-time key creation only if a new key is intended."
               exit 1
             fi
 
             if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
-               [ -z "${KEY_ALIAS:-}" ]; then
-              echo "::error::KEYSTORE_PASSWORD and KEY_ALIAS are required."
-              exit 1
-            fi
-
-            if [ -z "${KEY_PASSWORD:-}" ]; then
-              echo "::error::Set KEY_PASSWORD before creating the key."
+               [ -z "${KEY_ALIAS:-}" ] || \
+               [ -z "${KEY_PASSWORD:-}" ]; then
+              echo "::error::Set KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD first."
               exit 1
             fi
 
             if [ "$KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]; then
-              echo "::error::For this first PKCS12 key, KEY_PASSWORD must equal KEYSTORE_PASSWORD."
+              echo "::error::For this new PKCS12 key, KEY_PASSWORD must equal KEYSTORE_PASSWORD."
               exit 1
             fi
 
@@ -340,11 +279,35 @@ jobs:
             base64 -w 0 android/app/release.keystore \
               > "$RUNNER_TEMP/release-keystore.base64"
 
+            openssl enc -aes-256-cbc -salt -pbkdf2 \
+              -pass env:KEYSTORE_PASSWORD \
+              -in "$RUNNER_TEMP/release-keystore.base64" \
+              -out "$RUNNER_TEMP/release-keystore.base64.enc"
+
             echo 'generated_keystore=true' >> "$GITHUB_OUTPUT"
-            echo 'First signing key created and verified.'
+            echo 'First signing key generated and verified.'
           fi
 
-          cat >> android/app/build.gradle <<'GROOVY'
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('android/app/build.gradle')
+          s = p.read_text(encoding='utf-8')
+
+          start = '// BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG'
+          end = '// END ASSAMESE SAHAYIKA SIGNING CONFIG'
+
+          # Remove an earlier copy of this workflow's signing block.
+          s = re.sub(
+              re.escape(start) + r'.*?' + re.escape(end) + r'\s*',
+              '',
+              s,
+              flags=re.S
+          )
+
+          block = '''
+          // BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG
           android {
               signingConfigs {
                   release {
@@ -360,7 +323,11 @@ jobs:
                   }
               }
           }
-          GROOVY
+          // END ASSAMESE SAHAYIKA SIGNING CONFIG
+          '''
+
+          p.write_text(s.rstrip() + '\n\n' + block.strip() + '\n', encoding='utf-8')
+          PY
 
       - name: Build Debug APK
         working-directory: android
@@ -396,13 +363,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload first-time signing key setup
+      - name: Upload encrypted signing key backup
         if: always() && steps.signing.outputs.generated_keystore == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Assamese-Sahayika-Key-Setup
+          name: Assamese-Sahayika-Encrypted-Key-Backup
           path: |
-            ${{ runner.temp }}/release-keystore.base64
             ${{ runner.temp }}/release-keystore.enc
+            ${{ runner.temp }}/release-keystore.base64.enc
           if-no-files-found: error
           retention-days: 7
