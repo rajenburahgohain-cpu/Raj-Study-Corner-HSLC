@@ -5,7 +5,7 @@ name: Build Assamese Sahayika APK and AAB (Signed Play Build)
   workflow_dispatch:
     inputs:
       create_new_upload_key:
-        description: "Create a new key only for the first setup"
+        description: "Create a new upload key only for first setup"
         required: true
         type: boolean
         default: false
@@ -125,6 +125,7 @@ jobs:
           ]:
               if not p.exists():
                   continue
+
               s = p.read_text(encoding='utf-8')
 
               if p.name == 'variables.gradle':
@@ -170,6 +171,7 @@ jobs:
 
           strings = Path('android/app/src/main/res/values/strings.xml')
           strings.parent.mkdir(parents=True, exist_ok=True)
+
           x = strings.read_text(encoding='utf-8') if strings.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
 
           item = '<string name="admob_app_id">' + html.escape(app_id, quote=True) + '</string>'
@@ -202,7 +204,7 @@ jobs:
               encoding='utf-8'
           )
 
-          print('Android API and permissions configured.')
+          print('Android permissions and AdMob configuration prepared.')
           print('Test Ad IDs active:', using_test)
           PY
 
@@ -233,24 +235,26 @@ jobs:
               -alias "$KEY_ALIAS" >/dev/null
 
             echo 'generated_keystore=false' >> "$GITHUB_OUTPUT"
-            echo 'Using the saved signing key.'
+            echo 'Using saved signing key.'
 
           else
-            if [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
+            # A push-triggered build must NEVER create a new signing key.
+            if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || \
+               [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
               echo "::error::KEYSTORE_BASE64 is missing."
-              echo "::error::No key created. Enable first-time key creation only if a new key is intended."
+              echo "::error::For first setup, manually run this workflow and select create_new_upload_key=true."
               exit 1
             fi
 
             if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
                [ -z "${KEY_ALIAS:-}" ] || \
                [ -z "${KEY_PASSWORD:-}" ]; then
-              echo "::error::Set KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD first."
+              echo "::error::Set KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD in GitHub Secrets first."
               exit 1
             fi
 
             if [ "$KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]; then
-              echo "::error::For this new PKCS12 key, KEY_PASSWORD must equal KEYSTORE_PASSWORD."
+              echo "::error::For a new PKCS12 key, KEY_PASSWORD must equal KEYSTORE_PASSWORD."
               exit 1
             fi
 
@@ -276,18 +280,15 @@ jobs:
               -in android/app/release.keystore \
               -out "$RUNNER_TEMP/release-keystore.enc"
 
+            # Temporary setup file: keep artifact access restricted.
             base64 -w 0 android/app/release.keystore \
               > "$RUNNER_TEMP/release-keystore.base64"
-
-            openssl enc -aes-256-cbc -salt -pbkdf2 \
-              -pass env:KEYSTORE_PASSWORD \
-              -in "$RUNNER_TEMP/release-keystore.base64" \
-              -out "$RUNNER_TEMP/release-keystore.base64.enc"
 
             echo 'generated_keystore=true' >> "$GITHUB_OUTPUT"
             echo 'First signing key generated and verified.'
           fi
 
+          # Add the signing configuration once to the generated build file.
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -298,7 +299,6 @@ jobs:
           start = '// BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG'
           end = '// END ASSAMESE SAHAYIKA SIGNING CONFIG'
 
-          # Remove an earlier copy of this workflow's signing block.
           s = re.sub(
               re.escape(start) + r'.*?' + re.escape(end) + r'\s*',
               '',
@@ -363,13 +363,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload encrypted signing key backup
+      - name: Upload first-time signing key setup
         if: always() && steps.signing.outputs.generated_keystore == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Assamese-Sahayika-Encrypted-Key-Backup
+          name: Assamese-Sahayika-Key-Setup
           path: |
+            ${{ runner.temp }}/release-keystore.base64
             ${{ runner.temp }}/release-keystore.enc
-            ${{ runner.temp }}/release-keystore.base64.enc
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
