@@ -1,4 +1,3 @@
-
 name: Build Assamese Sahayika APK and AAB (Signed Play Build)
 
 "on":
@@ -110,7 +109,7 @@ jobs:
           npx cap sync android
           test -f android/app/src/main/AndroidManifest.xml
 
-      - name: Configure Android API, microphone and AdMob
+      - name: Configure Android API, minimum SDK, microphone and AdMob
         shell: bash
         run: |
           set -euo pipefail
@@ -119,91 +118,85 @@ jobs:
           from pathlib import Path
           import re, os, json, html
 
-          for p in [
-              Path('android/variables.gradle'),
-              Path('android/app/build.gradle')
-          ]:
-              if not p.exists():
-                  continue
+          variables = Path('android/variables.gradle')
+          if not variables.exists():
+              raise SystemExit('android/variables.gradle not found')
 
-              s = p.read_text(encoding='utf-8')
+          s = variables.read_text(encoding='utf-8')
+          s = re.sub(r'(compileSdkVersion\\s*=\\s*)\\d+', r'\\g<1>36', s)
+          s = re.sub(r'(targetSdkVersion\\s*=\\s*)\\d+', r'\\g<1>36', s)
 
-              if p.name == 'variables.gradle':
-                  s = re.sub(r'(compileSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
-                  s = re.sub(r'(targetSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
-              else:
-                  s = re.sub(r'(compileSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
-                  s = re.sub(r'(targetSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
+          s, count = re.subn(r'(minSdkVersion\\s*=\\s*)\\d+', r'\\g<1>24', s)
+          if count == 0:
+              raise SystemExit('Could not update minSdkVersion in variables.gradle')
+          variables.write_text(s, encoding='utf-8')
 
-              p.write_text(s, encoding='utf-8')
+          check = re.search(r'minSdkVersion\\s*=\\s*(\\d+)', s)
+          if not check or int(check.group(1)) < 24:
+              raise SystemExit('minSdkVersion must be 24 or higher')
+          print('Verified minSdkVersion:', check.group(1))
+
+          app_gradle = Path('android/app/build.gradle')
+          if app_gradle.exists():
+              s = app_gradle.read_text(encoding='utf-8')
+              s = re.sub(r'(compileSdk\\s*(?:=|\\s)\\s*)\\d+', r'\\g<1>36', s)
+              s = re.sub(r'(targetSdk\\s*(?:=|\\s)\\s*)\\d+', r'\\g<1>36', s)
+              s = re.sub(r'(minSdk\\s*=\\s*)\\d+', r'\\g<1>24', s)
+              s = re.sub(r'(minSdkVersion\\s*=\\s*)\\d+', r'\\g<1>24', s)
+              app_gradle.write_text(s, encoding='utf-8')
 
           manifest = Path('android/app/src/main/AndroidManifest.xml')
           s = manifest.read_text(encoding='utf-8')
-          root = re.search(r'<manifest\b[^>]*>', s)
-
+          root = re.search(r'<manifest\\b[^>]*>', s)
           if not root:
               raise SystemExit('Android manifest root missing')
 
-          for perm in [
-              'android.permission.RECORD_AUDIO',
-              'android.permission.MODIFY_AUDIO_SETTINGS'
-          ]:
-              pat = r'<uses-permission\b[^>]*android:name="' + re.escape(perm) + r'"'
+          for perm in ['android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS']:
+              pat = r'<uses-permission\\b[^>]*android:name="' + re.escape(perm) + r'"'
               if not re.search(pat, s):
-                  s = s[:root.end()] + f'\n    <uses-permission android:name="{perm}" />' + s[root.end():]
-                  root = re.search(r'<manifest\b[^>]*>', s)
+                  s = s[:root.end()] + f'\\n    <uses-permission android:name="{perm}" />' + s[root.end():]
+                  root = re.search(r'<manifest\\b[^>]*>', s)
 
           test_app = 'ca-app-pub-3940256099942544~3347511713'
           app_id = (os.getenv('ADMOB_APP_ID') or '').strip() or test_app
-
           meta = '<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
-          pat = r'<meta-data\b(?=[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID")[^>]*/?>'
+          pat = r'<meta-data\\b(?=[^>]*android:name="com\\.google\\.android\\.gms\\.ads\\.APPLICATION_ID")[^>]*/?>'
 
           if re.search(pat, s):
               s = re.sub(pat, meta, s, count=1)
           else:
-              app = re.search(r'<application\b[^>]*>', s)
+              app = re.search(r'<application\\b[^>]*>', s)
               if not app:
                   raise SystemExit('Android application tag missing')
-              s = s[:app.end()] + '\n        ' + meta + s[app.end():]
-
+              s = s[:app.end()] + '\\n        ' + meta + s[app.end():]
           manifest.write_text(s, encoding='utf-8')
 
           strings = Path('android/app/src/main/res/values/strings.xml')
           strings.parent.mkdir(parents=True, exist_ok=True)
-
-          x = strings.read_text(encoding='utf-8') if strings.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
-
+          x = strings.read_text(encoding='utf-8') if strings.exists() else '<?xml version="1.0" encoding="utf-8"?>\\n<resources>\\n</resources>\\n'
           item = '<string name="admob_app_id">' + html.escape(app_id, quote=True) + '</string>'
-          pat = r'<string\s+name="admob_app_id">.*?</string>'
+          pat = r'<string\\s+name="admob_app_id">.*?</string>'
 
           if re.search(pat, x, re.S):
               x = re.sub(pat, item, x, flags=re.S)
           elif '</resources>' in x:
-              x = x.replace('</resources>', '    ' + item + '\n</resources>')
+              x = x.replace('</resources>', '    ' + item + '\\n</resources>')
           else:
               raise SystemExit('strings.xml invalid')
-
           strings.write_text(x, encoding='utf-8')
 
           banner = (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip() or 'ca-app-pub-3940256099942544/6300978111'
           inter = (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip() or 'ca-app-pub-3940256099942544/1033173712'
-
-          using_test = not all([
-              (os.getenv('ADMOB_APP_ID') or '').strip(),
-              (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip(),
-              (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip()
-          ])
+          using_test = not all([(os.getenv('ADMOB_APP_ID') or '').strip(), (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip(), (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip()])
 
           Path('www/admob-config.js').write_text(
               'window.ASSAMESE_SAHAYIKA_ADMOB = ' + json.dumps({
                   'bannerAdUnitId': banner,
                   'interstitialAdUnitId': inter,
                   'usingTestIds': using_test
-              }) + ';\n',
+              }) + ';\\n',
               encoding='utf-8'
           )
-
           print('Android permissions and AdMob configuration prepared.')
           print('Test Ad IDs active:', using_test)
           PY
@@ -216,39 +209,24 @@ jobs:
           mkdir -p android/app
 
           if [ -n "${KEYSTORE_BASE64:-}" ]; then
-            if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
-               [ -z "${KEY_ALIAS:-}" ] || \
-               [ -z "${KEY_PASSWORD:-}" ]; then
+            if [ -z "${KEYSTORE_PASSWORD:-}" ] || [ -z "${KEY_ALIAS:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
               echo "::error::All signing secrets are required."
               exit 1
             fi
 
-            printf '%s' "$KEYSTORE_BASE64" \
-              | base64 --decode > android/app/release.keystore
-
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
             test -s android/app/release.keystore
-
-            keytool -list \
-              -keystore android/app/release.keystore \
-              -storetype PKCS12 \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -alias "$KEY_ALIAS" >/dev/null
-
+            keytool -list -keystore android/app/release.keystore -storetype PKCS12 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
             echo 'generated_keystore=false' >> "$GITHUB_OUTPUT"
             echo 'Using saved signing key.'
-
           else
-            # A push-triggered build must NEVER create a new signing key.
-            if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || \
-               [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
+            if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
               echo "::error::KEYSTORE_BASE64 is missing."
               echo "::error::For first setup, manually run this workflow and select create_new_upload_key=true."
               exit 1
             fi
 
-            if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
-               [ -z "${KEY_ALIAS:-}" ] || \
-               [ -z "${KEY_PASSWORD:-}" ]; then
+            if [ -z "${KEYSTORE_PASSWORD:-}" ] || [ -z "${KEY_ALIAS:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
               echo "::error::Set KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD in GitHub Secrets first."
               exit 1
             fi
@@ -258,54 +236,22 @@ jobs:
               exit 1
             fi
 
-            keytool -genkeypair -noprompt -v \
-              -keystore android/app/release.keystore \
-              -storetype PKCS12 \
-              -alias "$KEY_ALIAS" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -keypass "$KEY_PASSWORD" \
-              -dname 'CN=Assamese Sahayika, OU=App, O=RBG Study Corner, L=Guwahati, ST=Assam, C=IN'
-
-            keytool -list \
-              -keystore android/app/release.keystore \
-              -storetype PKCS12 \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -alias "$KEY_ALIAS" >/dev/null
-
-            openssl enc -aes-256-cbc -salt -pbkdf2 \
-              -pass env:KEYSTORE_PASSWORD \
-              -in android/app/release.keystore \
-              -out "$RUNNER_TEMP/release-keystore.enc"
-
-            # Temporary setup file: keep artifact access restricted.
-            base64 -w 0 android/app/release.keystore \
-              > "$RUNNER_TEMP/release-keystore.base64"
-
+            keytool -genkeypair -noprompt -v -keystore android/app/release.keystore -storetype PKCS12 -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" -dname 'CN=Assamese Sahayika, OU=App, O=RBG Study Corner, L=Guwahati, ST=Assam, C=IN'
+            keytool -list -keystore android/app/release.keystore -storetype PKCS12 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+            openssl enc -aes-256-cbc -salt -pbkdf2 -pass env:KEYSTORE_PASSWORD -in android/app/release.keystore -out "$RUNNER_TEMP/release-keystore.enc"
+            base64 -w 0 android/app/release.keystore > "$RUNNER_TEMP/release-keystore.base64"
             echo 'generated_keystore=true' >> "$GITHUB_OUTPUT"
             echo 'First signing key generated and verified.'
           fi
 
-          # Add the signing configuration once to the generated build file.
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           p = Path('android/app/build.gradle')
           s = p.read_text(encoding='utf-8')
-
           start = '// BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG'
           end = '// END ASSAMESE SAHAYIKA SIGNING CONFIG'
-
-          s = re.sub(
-              re.escape(start) + r'.*?' + re.escape(end) + r'\s*',
-              '',
-              s,
-              flags=re.S
-          )
-
+          s = re.sub(re.escape(start) + r'.*?' + re.escape(end) + r'\\s*', '', s, flags=re.S)
           block = '''
           // BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG
           android {
@@ -325,8 +271,7 @@ jobs:
           }
           // END ASSAMESE SAHAYIKA SIGNING CONFIG
           '''
-
-          p.write_text(s.rstrip() + '\n\n' + block.strip() + '\n', encoding='utf-8')
+          p.write_text(s.rstrip() + '\\n\\n' + block.strip() + '\\n', encoding='utf-8')
           PY
 
       - name: Build Debug APK
@@ -348,8 +293,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s android/app/build/outputs/bundle/release/app-release.aab
-          jarsigner -verify android/app/build/outputs/bundle/release/app-release.aab
+          AAB="android/app/build/outputs/bundle/release/app-release.aab"
+          test -s "$AAB"
+          jarsigner -verify "$AAB"
           echo 'AAB signature verified.'
 
       - name: Upload APK and AAB artifacts
