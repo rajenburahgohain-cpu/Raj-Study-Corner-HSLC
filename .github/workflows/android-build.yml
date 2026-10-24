@@ -123,15 +123,15 @@ jobs:
               raise SystemExit('android/variables.gradle not found')
 
           s = variables.read_text(encoding='utf-8')
-          s = re.sub(r'(compileSdkVersion\\s*=\\s*)\\d+', r'\\g<1>36', s)
-          s = re.sub(r'(targetSdkVersion\\s*=\\s*)\\d+', r'\\g<1>36', s)
+          s = re.sub(r'(compileSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
+          s = re.sub(r'(targetSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
 
-          s, count = re.subn(r'(minSdkVersion\\s*=\\s*)\\d+', r'\\g<1>24', s)
+          s, count = re.subn(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>24', s)
           if count == 0:
               raise SystemExit('Could not update minSdkVersion in variables.gradle')
           variables.write_text(s, encoding='utf-8')
 
-          check = re.search(r'minSdkVersion\\s*=\\s*(\\d+)', s)
+          check = re.search(r'minSdkVersion\s*=\s*(\d+)', s)
           if not check or int(check.group(1)) < 24:
               raise SystemExit('minSdkVersion must be 24 or higher')
           print('Verified minSdkVersion:', check.group(1))
@@ -139,48 +139,48 @@ jobs:
           app_gradle = Path('android/app/build.gradle')
           if app_gradle.exists():
               s = app_gradle.read_text(encoding='utf-8')
-              s = re.sub(r'(compileSdk\\s*(?:=|\\s)\\s*)\\d+', r'\\g<1>36', s)
-              s = re.sub(r'(targetSdk\\s*(?:=|\\s)\\s*)\\d+', r'\\g<1>36', s)
-              s = re.sub(r'(minSdk\\s*=\\s*)\\d+', r'\\g<1>24', s)
-              s = re.sub(r'(minSdkVersion\\s*=\\s*)\\d+', r'\\g<1>24', s)
+              s = re.sub(r'(compileSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
+              s = re.sub(r'(targetSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
+              s = re.sub(r'(minSdk\s*=\s*)\d+', r'\g<1>24', s)
+              s = re.sub(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>24', s)
               app_gradle.write_text(s, encoding='utf-8')
 
           manifest = Path('android/app/src/main/AndroidManifest.xml')
           s = manifest.read_text(encoding='utf-8')
-          root = re.search(r'<manifest\\b[^>]*>', s)
+          root = re.search(r'<manifest\b[^>]*>', s)
           if not root:
               raise SystemExit('Android manifest root missing')
 
           for perm in ['android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS']:
-              pat = r'<uses-permission\\b[^>]*android:name="' + re.escape(perm) + r'"'
+              pat = r'<uses-permission\b[^>]*android:name="' + re.escape(perm) + r'"'
               if not re.search(pat, s):
-                  s = s[:root.end()] + f'\\n    <uses-permission android:name="{perm}" />' + s[root.end():]
-                  root = re.search(r'<manifest\\b[^>]*>', s)
+                  s = s[:root.end()] + f'\n    <uses-permission android:name="{perm}" />' + s[root.end():]
+                  root = re.search(r'<manifest\b[^>]*>', s)
 
           test_app = 'ca-app-pub-3940256099942544~3347511713'
           app_id = (os.getenv('ADMOB_APP_ID') or '').strip() or test_app
           meta = '<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
-          pat = r'<meta-data\\b(?=[^>]*android:name="com\\.google\\.android\\.gms\\.ads\\.APPLICATION_ID")[^>]*/?>'
+          pat = r'<meta-data\b(?=[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID")[^>]*/?>'
 
           if re.search(pat, s):
               s = re.sub(pat, meta, s, count=1)
           else:
-              app = re.search(r'<application\\b[^>]*>', s)
+              app = re.search(r'<application\b[^>]*>', s)
               if not app:
                   raise SystemExit('Android application tag missing')
-              s = s[:app.end()] + '\\n        ' + meta + s[app.end():]
+              s = s[:app.end()] + '\n        ' + meta + s[app.end():]
           manifest.write_text(s, encoding='utf-8')
 
           strings = Path('android/app/src/main/res/values/strings.xml')
           strings.parent.mkdir(parents=True, exist_ok=True)
-          x = strings.read_text(encoding='utf-8') if strings.exists() else '<?xml version="1.0" encoding="utf-8"?>\\n<resources>\\n</resources>\\n'
+          x = strings.read_text(encoding='utf-8') if strings.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
           item = '<string name="admob_app_id">' + html.escape(app_id, quote=True) + '</string>'
-          pat = r'<string\\s+name="admob_app_id">.*?</string>'
+          pat = r'<string\s+name="admob_app_id">.*?</string>'
 
           if re.search(pat, x, re.S):
               x = re.sub(pat, item, x, flags=re.S)
           elif '</resources>' in x:
-              x = x.replace('</resources>', '    ' + item + '\\n</resources>')
+              x = x.replace('</resources>', '    ' + item + '\n</resources>')
           else:
               raise SystemExit('strings.xml invalid')
           strings.write_text(x, encoding='utf-8')
@@ -194,7 +194,7 @@ jobs:
                   'bannerAdUnitId': banner,
                   'interstitialAdUnitId': inter,
                   'usingTestIds': using_test
-              }) + ';\\n',
+              }) + ';\n',
               encoding='utf-8'
           )
           print('Android permissions and AdMob configuration prepared.')
@@ -251,7 +251,7 @@ jobs:
           s = p.read_text(encoding='utf-8')
           start = '// BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG'
           end = '// END ASSAMESE SAHAYIKA SIGNING CONFIG'
-          s = re.sub(re.escape(start) + r'.*?' + re.escape(end) + r'\\s*', '', s, flags=re.S)
+          s = re.sub(re.escape(start) + r'.*?' + re.escape(end) + r'\s*', '', s, flags=re.S)
           block = '''
           // BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG
           android {
@@ -271,7 +271,7 @@ jobs:
           }
           // END ASSAMESE SAHAYIKA SIGNING CONFIG
           '''
-          p.write_text(s.rstrip() + '\\n\\n' + block.strip() + '\\n', encoding='utf-8')
+          p.write_text(s.rstrip() + '\n\n' + block.strip() + '\n', encoding='utf-8')
           PY
 
       - name: Build Debug APK
