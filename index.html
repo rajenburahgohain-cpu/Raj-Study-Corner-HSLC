@@ -698,43 +698,105 @@ const ASSAMESE_STT_ENDPOINT=SUPABASE_URL+"/functions/v1/Assamese-stt";
 const ONLINE_SEARCH_ENDPOINT=SUPABASE_URL+"/functions/v1/online-search";
 let supabaseClient=null;
 function initSupabase(){try{if(!window.supabase)return false;supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);return true}catch(e){console.error(e);return false}}
+
 let pageHistory=[];let currentPage="home";
+
+try{
+  if(!history.state || !history.state.assameseSahayikaPage){
+    history.replaceState(
+      {assameseSahayikaPage:"home"},"",location.href
+    );
+  }
+}catch(e){}
+
 async function showPage(id,fromBack=false){
-  // Always explicitly switch visible sections; this avoids stale/hidden page state in Android WebView.
-  if(!fromBack && id!==currentPage) pageHistory.push(currentPage);
-  document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
+  if(!fromBack && id!==currentPage){
+    pageHistory.push(currentPage);
+    try{
+      history.pushState(
+        {assameseSahayikaPage:id},
+        "",
+        "#"+encodeURIComponent(id)
+      );
+    }catch(e){}
+  }
+
+  document.querySelectorAll("main > section").forEach(s=>{
+    s.classList.add("hidden");
+  });
+
   const p=document.getElementById(id);
-  if(p) p.classList.remove("hidden");
+  if(p)p.classList.remove("hidden");
+
   currentPage=id;
+
   const bb=document.getElementById("appBackBtn");
   if(bb){
     bb.style.display=currentPage==="home"?"none":"block";
-    bb.textContent="← Home";
-    bb.setAttribute("aria-label","Home পৃষ্ঠালৈ উভতি যাওক");
+    bb.textContent="← আগৰ পৃষ্ঠা";
+    bb.setAttribute("aria-label","আগৰ পৃষ্ঠালৈ উভতি যাওক");
   }
-  // Instant reset is more reliable than smooth scrolling inside Android WebView.
+
   window.scrollTo(0,0);
   document.documentElement.scrollTop=0;
   document.body.scrollTop=0;
+
   if(id==="admin"){checkAdminSession()}
 }
-function appBack(){
+
+function restorePreviousPage(){
   stopAllAudio();
+
+  const previous=pageHistory.pop();
+
+  if(previous && document.getElementById(previous)){
+    showPage(previous,true);
+    return;
+  }
+
   pageHistory=[];
-  // Force the initial dashboard to be visible, even if a sub-page was opened by a direct handler.
-  document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
+
+  document.querySelectorAll("main > section").forEach(s=>{
+    s.classList.add("hidden");
+  });
+
   const home=document.getElementById("home");
   if(home)home.classList.remove("hidden");
+
   currentPage="home";
+
   const bb=document.getElementById("appBackBtn");
-  if(bb){bb.style.display="none";bb.textContent="← Home";}
+  if(bb){
+    bb.style.display="none";
+    bb.textContent="← Home";
+  }
+
   window.scrollTo(0,0);
   document.documentElement.scrollTop=0;
   document.body.scrollTop=0;
 }
 
-// Android/browser Back button returns directly to the initial Home dashboard.
-window.addEventListener("popstate",()=>{appBack();});
+function appBack(){
+  stopAllAudio();
+
+  if(
+    pageHistory.length>0 &&
+    history.state &&
+    history.state.assameseSahayikaPage
+  ){
+    history.back();
+    return;
+  }
+
+  restorePreviousPage();
+}
+
+window.addEventListener("popstate",()=>{
+  if(pageHistory.length>0){
+    restorePreviousPage();
+  }
+});
+
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
 async function dbSearch(term,limit=10){if(!supabaseClient)return{data:[],error:new Error("Supabase connection হোৱা নাই")};const clean=String(term).trim();if(!clean)return{data:[],error:null};const r=await supabaseClient.from("questions").select("*").or("question.ilike.%"+clean+"%,answer.ilike.%"+clean+"%").limit(limit);return{data:r.data||[],error:r.error||null}}
