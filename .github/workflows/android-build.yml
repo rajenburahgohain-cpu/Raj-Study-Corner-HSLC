@@ -140,7 +140,6 @@ jobs:
           check = re.search(r'minSdkVersion\s*=\s*(\d+)', s)
           if not check or int(check.group(1)) < 24:
               raise SystemExit('minSdkVersion must be 24 or higher')
-          print('Verified minSdkVersion:', check.group(1))
 
           app_gradle = Path('android/app/build.gradle')
           if app_gradle.exists():
@@ -219,8 +218,76 @@ jobs:
               encoding='utf-8'
           )
 
-          print('Android permissions and AdMob configuration prepared.')
+          print('Android configuration prepared.')
           print('Test Ad IDs active:', using_test)
+          PY
+
+      - name: Set a new Google Play version code
+        shell: bash
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os, re
+
+          p = Path('android/app/build.gradle')
+          if not p.exists():
+              raise SystemExit('android/app/build.gradle not found')
+
+          s = p.read_text(encoding='utf-8')
+
+          # Use a high, monotonically increasing code to avoid reusing versionCode 1.
+          run_number = int(os.environ['BUILD_NUMBER'])
+          new_code = 1000 + run_number
+
+          start = s.find('defaultConfig')
+          if start < 0:
+              raise SystemExit('defaultConfig block not found')
+
+          opening = s.find('{', start)
+          if opening < 0:
+              raise SystemExit('defaultConfig opening brace not found')
+
+          depth = 0
+          closing = -1
+          for i in range(opening, len(s)):
+              if s[i] == '{':
+                  depth += 1
+              elif s[i] == '}':
+                  depth -= 1
+                  if depth == 0:
+                      closing = i
+                      break
+
+          if closing < 0:
+              raise SystemExit('defaultConfig closing brace not found')
+
+          block = s[opening + 1:closing]
+
+          if re.search(r'(?m)^\s*versionCode\s+\d+\s*$', block):
+              block = re.sub(
+                  r'(?m)^(\s*)versionCode\s+\d+\s*$',
+                  lambda m: m.group(1) + 'versionCode ' + str(new_code),
+                  block,
+                  count=1
+              )
+          elif re.search(r'(?m)^\s*versionCode\s*=\s*\d+\s*$', block):
+              block = re.sub(
+                  r'(?m)^(\s*)versionCode\s*=\s*\d+\s*$',
+                  lambda m: m.group(1) + 'versionCode = ' + str(new_code),
+                  block,
+                  count=1
+              )
+          else:
+              block = block.rstrip() + '\n        versionCode ' + str(new_code) + '\n    '
+
+          s = s[:opening + 1] + block + s[closing:]
+          p.write_text(s, encoding='utf-8')
+
+          print('Configured Google Play versionCode:', new_code)
           PY
 
       - name: Configure Play Store signing
@@ -253,7 +320,7 @@ jobs:
             if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || \
                [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
               echo "::error::KEYSTORE_BASE64 is missing."
-              echo "::error::Only create a new key for a genuine first-time setup."
+              echo "::error::Do not generate a new key unless this is a genuine first-time setup."
               exit 1
             fi
 
@@ -378,20 +445,16 @@ jobs:
           cp "$APK" dist/apk/app-debug.apk
           cp "$AAB" dist/aab/app-release.aab
 
-          echo "APK file details:"
+          echo "APK details:"
           ls -lh dist/apk/app-debug.apk
           sha256sum dist/apk/app-debug.apk
 
-          echo "AAB file details:"
+          echo "AAB details:"
           ls -lh dist/aab/app-release.aab
           sha256sum dist/aab/app-release.aab
 
           AAB_SIZE_BYTES="$(stat -c '%s' dist/aab/app-release.aab)"
-          if [ "$AAB_SIZE_BYTES" -le 0 ]; then
-            echo "::error::AAB size is zero."
-            exit 1
-          fi
-
+          test "$AAB_SIZE_BYTES" -gt 0
           echo "AAB_SIZE_BYTES=$AAB_SIZE_BYTES" >> "$GITHUB_ENV"
           echo "Verified AAB size: $AAB_SIZE_BYTES bytes"
 
