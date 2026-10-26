@@ -1,3 +1,4 @@
+
 name: Build Assamese Sahayika APK and AAB (Signed Play Build)
 
 "on":
@@ -9,7 +10,8 @@ name: Build Assamese Sahayika APK and AAB (Signed Play Build)
         type: boolean
         default: false
   push:
-    branches: [main]
+    branches:
+      - main
     paths-ignore:
       - 'README*'
       - 'premium_ads_setup.sql'
@@ -63,7 +65,9 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
-            'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+            'platform-tools' \
+            'platforms;android-36' \
+            'build-tools;36.0.0'
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
       - name: Prepare Capacitor Android project
@@ -110,7 +114,7 @@ jobs:
           npx cap sync android
           test -f android/app/src/main/AndroidManifest.xml
 
-      - name: Configure Android API, minimum SDK, microphone and AdMob
+      - name: Configure Android API, microphone and AdMob
         shell: bash
         run: |
           set -euo pipefail
@@ -130,6 +134,7 @@ jobs:
           s, count = re.subn(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>24', s)
           if count == 0:
               raise SystemExit('Could not update minSdkVersion in variables.gradle')
+
           variables.write_text(s, encoding='utf-8')
 
           check = re.search(r'minSdkVersion\s*=\s*(\d+)', s)
@@ -152,10 +157,14 @@ jobs:
           if not root:
               raise SystemExit('Android manifest root missing')
 
-          for perm in ['android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS']:
+          for perm in [
+              'android.permission.RECORD_AUDIO',
+              'android.permission.MODIFY_AUDIO_SETTINGS'
+          ]:
               pat = r'<uses-permission\b[^>]*android:name="' + re.escape(perm) + r'"'
               if not re.search(pat, s):
-                  s = s[:root.end()] + f'\n    <uses-permission android:name="{perm}" />' + s[root.end():]
+                  s = s[:root.end()] + \
+                      f'\n    <uses-permission android:name="{perm}" />' + s[root.end():]
                   root = re.search(r'<manifest\b[^>]*>', s)
 
           test_app = 'ca-app-pub-3940256099942544~3347511713'
@@ -170,11 +179,14 @@ jobs:
               if not app:
                   raise SystemExit('Android application tag missing')
               s = s[:app.end()] + '\n        ' + meta + s[app.end():]
+
           manifest.write_text(s, encoding='utf-8')
 
           strings = Path('android/app/src/main/res/values/strings.xml')
           strings.parent.mkdir(parents=True, exist_ok=True)
-          x = strings.read_text(encoding='utf-8') if strings.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+          x = strings.read_text(encoding='utf-8') if strings.exists() else \
+              '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+
           item = '<string name="admob_app_id">' + html.escape(app_id, quote=True) + '</string>'
           pat = r'<string\s+name="admob_app_id">.*?</string>'
 
@@ -184,11 +196,19 @@ jobs:
               x = x.replace('</resources>', '    ' + item + '\n</resources>')
           else:
               raise SystemExit('strings.xml invalid')
+
           strings.write_text(x, encoding='utf-8')
 
-          banner = (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip() or 'ca-app-pub-3940256099942544/6300978111'
-          inter = (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip() or 'ca-app-pub-3940256099942544/1033173712'
-          using_test = not all([(os.getenv('ADMOB_APP_ID') or '').strip(), (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip(), (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip()])
+          banner = (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip() or \
+              'ca-app-pub-3940256099942544/6300978111'
+          inter = (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip() or \
+              'ca-app-pub-3940256099942544/1033173712'
+
+          using_test = not all([
+              (os.getenv('ADMOB_APP_ID') or '').strip(),
+              (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip(),
+              (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip()
+          ])
 
           Path('www/admob-config.js').write_text(
               'window.ASSAMESE_SAHAYIKA_ADMOB = ' + json.dumps({
@@ -198,6 +218,7 @@ jobs:
               }) + ';\n',
               encoding='utf-8'
           )
+
           print('Android permissions and AdMob configuration prepared.')
           print('Test Ad IDs active:', using_test)
           PY
@@ -210,24 +231,35 @@ jobs:
           mkdir -p android/app
 
           if [ -n "${KEYSTORE_BASE64:-}" ]; then
-            if [ -z "${KEYSTORE_PASSWORD:-}" ] || [ -z "${KEY_ALIAS:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
+            if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
+               [ -z "${KEY_ALIAS:-}" ] || \
+               [ -z "${KEY_PASSWORD:-}" ]; then
               echo "::error::All signing secrets are required."
               exit 1
             fi
 
             printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
             test -s android/app/release.keystore
-            keytool -list -keystore android/app/release.keystore -storetype PKCS12 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+
+            keytool -list \
+              -keystore android/app/release.keystore \
+              -storetype PKCS12 \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS" >/dev/null
+
             echo 'generated_keystore=false' >> "$GITHUB_OUTPUT"
             echo 'Using saved signing key.'
           else
-            if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
+            if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || \
+               [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
               echo "::error::KEYSTORE_BASE64 is missing."
-              echo "::error::For first setup, manually run this workflow and select create_new_upload_key=true."
+              echo "::error::Only create a new key for a genuine first-time setup."
               exit 1
             fi
 
-            if [ -z "${KEYSTORE_PASSWORD:-}" ] || [ -z "${KEY_ALIAS:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
+            if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
+               [ -z "${KEY_ALIAS:-}" ] || \
+               [ -z "${KEY_PASSWORD:-}" ]; then
               echo "::error::Set KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD in GitHub Secrets first."
               exit 1
             fi
@@ -237,10 +269,31 @@ jobs:
               exit 1
             fi
 
-            keytool -genkeypair -noprompt -v -keystore android/app/release.keystore -storetype PKCS12 -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" -dname 'CN=Assamese Sahayika, OU=App, O=RBG Study Corner, L=Guwahati, ST=Assam, C=IN'
-            keytool -list -keystore android/app/release.keystore -storetype PKCS12 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
-            openssl enc -aes-256-cbc -salt -pbkdf2 -pass env:KEYSTORE_PASSWORD -in android/app/release.keystore -out "$RUNNER_TEMP/release-keystore.enc"
-            base64 -w 0 android/app/release.keystore > "$RUNNER_TEMP/release-keystore.base64"
+            keytool -genkeypair -noprompt -v \
+              -keystore android/app/release.keystore \
+              -storetype PKCS12 \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              -dname 'CN=Assamese Sahayika, OU=App, O=RBG Study Corner, L=Guwahati, ST=Assam, C=IN'
+
+            keytool -list \
+              -keystore android/app/release.keystore \
+              -storetype PKCS12 \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS" >/dev/null
+
+            openssl enc -aes-256-cbc -salt -pbkdf2 \
+              -pass env:KEYSTORE_PASSWORD \
+              -in android/app/release.keystore \
+              -out "$RUNNER_TEMP/release-keystore.enc"
+
+            base64 -w 0 android/app/release.keystore \
+              > "$RUNNER_TEMP/release-keystore.base64"
+
             echo 'generated_keystore=true' >> "$GITHUB_OUTPUT"
             echo 'First signing key generated and verified.'
           fi
@@ -248,11 +301,20 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
+
           p = Path('android/app/build.gradle')
           s = p.read_text(encoding='utf-8')
+
           start = '// BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG'
           end = '// END ASSAMESE SAHAYIKA SIGNING CONFIG'
-          s = re.sub(re.escape(start) + r'.*?' + re.escape(end) + r'\s*', '', s, flags=re.S)
+
+          s = re.sub(
+              re.escape(start) + r'.*?' + re.escape(end) + r'\s*',
+              '',
+              s,
+              flags=re.S
+          )
+
           block = '''
           // BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG
           android {
@@ -272,6 +334,7 @@ jobs:
           }
           // END ASSAMESE SAHAYIKA SIGNING CONFIG
           '''
+
           p.write_text(s.rstrip() + '\n\n' + block.strip() + '\n', encoding='utf-8')
           PY
 
@@ -290,27 +353,65 @@ jobs:
           set -euo pipefail
           ./gradlew --no-daemon bundleRelease
 
-      - name: Verify signed AAB
+      - name: Verify and prepare release files
         shell: bash
         run: |
           set -euo pipefail
-          AAB="android/app/build/outputs/bundle/release/app-release.aab"
-          test -s "$AAB"
-          jarsigner -verify "$AAB"
-          echo 'AAB signature verified.'
 
-      - name: Upload APK and AAB artifacts
-        if: success()
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          AAB="android/app/build/outputs/bundle/release/app-release.aab"
+
+          test -s "$APK" || {
+            echo "::error::Debug APK is missing or empty."
+            exit 1
+          }
+
+          test -s "$AAB" || {
+            echo "::error::Release AAB is missing or empty."
+            exit 1
+          }
+
+          echo "Verifying AAB signature..."
+          jarsigner -verify "$AAB"
+
+          mkdir -p dist/apk dist/aab
+          cp "$APK" dist/apk/app-debug.apk
+          cp "$AAB" dist/aab/app-release.aab
+
+          echo "APK file details:"
+          ls -lh dist/apk/app-debug.apk
+          sha256sum dist/apk/app-debug.apk
+
+          echo "AAB file details:"
+          ls -lh dist/aab/app-release.aab
+          sha256sum dist/aab/app-release.aab
+
+          AAB_SIZE_BYTES="$(stat -c '%s' dist/aab/app-release.aab)"
+          if [ "$AAB_SIZE_BYTES" -le 0 ]; then
+            echo "::error::AAB size is zero."
+            exit 1
+          fi
+
+          echo "AAB_SIZE_BYTES=$AAB_SIZE_BYTES" >> "$GITHUB_ENV"
+          echo "Verified AAB size: $AAB_SIZE_BYTES bytes"
+
+      - name: Upload Release AAB separately
         uses: actions/upload-artifact@v4
         with:
-          name: Assamese-Sahayika-APK-AAB-SIGNED
-          path: |
-            android/app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/bundle/release/*.aab
+          name: Assamese-Sahayika-Release-AAB
+          path: dist/aab/app-release.aab
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload first-time signing key setup
+      - name: Upload Debug APK separately
+        uses: actions/upload-artifact@v4
+        with:
+          name: Assamese-Sahayika-Debug-APK
+          path: dist/apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload first-time signing key backup
         if: always() && steps.signing.outputs.generated_keystore == 'true'
         uses: actions/upload-artifact@v4
         with:
