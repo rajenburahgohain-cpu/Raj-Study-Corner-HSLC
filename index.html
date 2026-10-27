@@ -795,7 +795,23 @@ window.addEventListener("popstate",()=>{
   if(pageHistory.length>0){
     restorePreviousPage();
   }
-});
+// Android hardware Back button handling
+(function registerAndroidBackButton() {
+  const App = window.Capacitor?.Plugins?.App;
+
+  if (!App || typeof App.addListener !== "function") {
+    console.warn("Capacitor App plugin is unavailable");
+    return;
+  }
+
+  App.addListener("backButton", () => {
+    if (currentPage !== "home") {
+      appBack();
+    } else {
+      restorePreviousPage();
+    }
+  });
+})();
 
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
