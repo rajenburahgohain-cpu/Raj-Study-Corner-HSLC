@@ -63,11 +63,14 @@ jobs:
           set -euo pipefail
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           test -x "$SDKMANAGER"
+
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
+
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
             'platform-tools' \
             'platforms;android-36' \
             'build-tools;36.0.0'
+
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
 
       - name: Prepare Capacitor Android project
@@ -113,6 +116,7 @@ jobs:
 
           npx cap sync android
           test -f android/app/src/main/AndroidManifest.xml
+          test -f android/app/build.gradle
 
       - name: Configure Android API, microphone and AdMob
         shell: bash
@@ -121,19 +125,34 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
-          import re, os, json, html
+          import re
+          import os
+          import json
+          import html
 
           variables = Path('android/variables.gradle')
           if not variables.exists():
               raise SystemExit('android/variables.gradle not found')
 
           s = variables.read_text(encoding='utf-8')
-          s = re.sub(r'(compileSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
-          s = re.sub(r'(targetSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
 
-          s, count = re.subn(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>24', s)
+          s = re.sub(
+              r'(compileSdkVersion\s*=\s*)\d+',
+              r'\g<1>36', s
+          )
+          s = re.sub(
+              r'(targetSdkVersion\s*=\s*)\d+',
+              r'\g<1>36', s
+          )
+
+          s, count = re.subn(
+              r'(minSdkVersion\s*=\s*)\d+',
+              r'\g<1>24', s
+          )
           if count == 0:
-              raise SystemExit('Could not update minSdkVersion in variables.gradle')
+              raise SystemExit(
+                  'Could not update minSdkVersion in variables.gradle'
+              )
 
           variables.write_text(s, encoding='utf-8')
 
@@ -141,17 +160,11 @@ jobs:
           if not check or int(check.group(1)) < 24:
               raise SystemExit('minSdkVersion must be 24 or higher')
 
-          app_gradle = Path('android/app/build.gradle')
-          if app_gradle.exists():
-              s = app_gradle.read_text(encoding='utf-8')
-              s = re.sub(r'(compileSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
-              s = re.sub(r'(targetSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
-              s = re.sub(r'(minSdk\s*=\s*)\d+', r'\g<1>24', s)
-              s = re.sub(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>24', s)
-              app_gradle.write_text(s, encoding='utf-8')
-
-          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          manifest = Path(
+              'android/app/src/main/AndroidManifest.xml'
+          )
           s = manifest.read_text(encoding='utf-8')
+
           root = re.search(r'<manifest\b[^>]*>', s)
           if not root:
               raise SystemExit('Android manifest root missing')
@@ -160,16 +173,34 @@ jobs:
               'android.permission.RECORD_AUDIO',
               'android.permission.MODIFY_AUDIO_SETTINGS'
           ]:
-              pat = r'<uses-permission\b[^>]*android:name="' + re.escape(perm) + r'"'
+              pat = (
+                  r'<uses-permission\b[^>]*android:name="'
+                  + re.escape(perm) + r'"'
+              )
               if not re.search(pat, s):
-                  s = s[:root.end()] + \
-                      f'\n    <uses-permission android:name="{perm}" />' + s[root.end():]
+                  s = (
+                      s[:root.end()]
+                      + f'\n    <uses-permission android:name="{perm}" />'
+                      + s[root.end():]
+                  )
                   root = re.search(r'<manifest\b[^>]*>', s)
 
           test_app = 'ca-app-pub-3940256099942544~3347511713'
-          app_id = (os.getenv('ADMOB_APP_ID') or '').strip() or test_app
-          meta = '<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
-          pat = r'<meta-data\b(?=[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID")[^>]*/?>'
+          app_id = (
+              os.getenv('ADMOB_APP_ID') or ''
+          ).strip() or test_app
+
+          meta = (
+              '<meta-data '
+              'android:name="com.google.android.gms.ads.APPLICATION_ID" '
+              'android:value="@string/admob_app_id" />'
+          )
+
+          pat = (
+              r'<meta-data\b'
+              r'(?=[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID")'
+              r'[^>]*/?>'
+          )
 
           if re.search(pat, s):
               s = re.sub(pat, meta, s, count=1)
@@ -181,27 +212,45 @@ jobs:
 
           manifest.write_text(s, encoding='utf-8')
 
-          strings = Path('android/app/src/main/res/values/strings.xml')
+          strings = Path(
+              'android/app/src/main/res/values/strings.xml'
+          )
           strings.parent.mkdir(parents=True, exist_ok=True)
-          x = strings.read_text(encoding='utf-8') if strings.exists() else \
-              '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
 
-          item = '<string name="admob_app_id">' + html.escape(app_id, quote=True) + '</string>'
+          x = (
+              strings.read_text(encoding='utf-8')
+              if strings.exists()
+              else '<?xml version="1.0" encoding="utf-8"?>\n'
+                   '<resources>\n</resources>\n'
+          )
+
+          item = (
+              '<string name="admob_app_id">'
+              + html.escape(app_id, quote=True)
+              + '</string>'
+          )
+
           pat = r'<string\s+name="admob_app_id">.*?</string>'
 
           if re.search(pat, x, re.S):
               x = re.sub(pat, item, x, flags=re.S)
           elif '</resources>' in x:
-              x = x.replace('</resources>', '    ' + item + '\n</resources>')
+              x = x.replace(
+                  '</resources>',
+                  '    ' + item + '\n</resources>'
+              )
           else:
-              raise SystemExit('strings.xml invalid')
+              raise SystemExit('strings.xml is invalid')
 
           strings.write_text(x, encoding='utf-8')
 
-          banner = (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip() or \
-              'ca-app-pub-3940256099942544/6300978111'
-          inter = (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip() or \
-              'ca-app-pub-3940256099942544/1033173712'
+          banner = (
+              os.getenv('ADMOB_BANNER_UNIT_ID') or ''
+          ).strip() or 'ca-app-pub-3940256099942544/6300978111'
+
+          inter = (
+              os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or ''
+          ).strip() or 'ca-app-pub-3940256099942544/1033173712'
 
           using_test = not all([
               (os.getenv('ADMOB_APP_ID') or '').strip(),
@@ -210,15 +259,19 @@ jobs:
           ])
 
           Path('www/admob-config.js').write_text(
-              'window.ASSAMESE_SAHAYIKA_ADMOB = ' + json.dumps({
+              'window.ASSAMESE_SAHAYIKA_ADMOB = '
+              + json.dumps({
                   'bannerAdUnitId': banner,
                   'interstitialAdUnitId': inter,
                   'usingTestIds': using_test
-              }) + ';\n',
+              })
+              + ';\n',
               encoding='utf-8'
           )
 
           print('Android configuration prepared.')
+          print('minSdkVersion: 24')
+          print('compileSdkVersion / targetSdkVersion: 36')
           print('Test Ad IDs active:', using_test)
           PY
 
@@ -231,7 +284,8 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
-          import os, re
+          import os
+          import re
 
           p = Path('android/app/build.gradle')
           if not p.exists():
@@ -239,20 +293,16 @@ jobs:
 
           s = p.read_text(encoding='utf-8')
 
-          # Use a high, monotonically increasing code to avoid reusing versionCode 1.
-          run_number = int(os.environ['BUILD_NUMBER'])
-          new_code = 1000 + run_number
+          new_code = 1000 + int(os.environ['BUILD_NUMBER'])
 
-          start = s.find('defaultConfig')
-          if start < 0:
+          match = re.search(r'\bdefaultConfig\s*\{', s)
+          if not match:
               raise SystemExit('defaultConfig block not found')
 
-          opening = s.find('{', start)
-          if opening < 0:
-              raise SystemExit('defaultConfig opening brace not found')
-
+          opening = s.find('{', match.start())
           depth = 0
           closing = -1
+
           for i in range(opening, len(s)):
               if s[i] == '{':
                   depth += 1
@@ -263,31 +313,28 @@ jobs:
                       break
 
           if closing < 0:
-              raise SystemExit('defaultConfig closing brace not found')
+              raise SystemExit('defaultConfig block is incomplete')
 
           block = s[opening + 1:closing]
 
-          if re.search(r'(?m)^\s*versionCode\s+\d+\s*$', block):
+          code_pattern = (
+              r'(?m)^(\s*)versionCode\s*(?:=\s*)?\d+\s*$'
+          )
+
+          if re.search(code_pattern, block):
               block = re.sub(
-                  r'(?m)^(\s*)versionCode\s+\d+\s*$',
+                  code_pattern,
                   lambda m: m.group(1) + 'versionCode ' + str(new_code),
                   block,
                   count=1
               )
-          elif re.search(r'(?m)^\s*versionCode\s*=\s*\d+\s*$', block):
-              block = re.sub(
-                  r'(?m)^(\s*)versionCode\s*=\s*\d+\s*$',
-                  lambda m: m.group(1) + 'versionCode = ' + str(new_code),
-                  block,
-                  count=1
-              )
           else:
-              block = block.rstrip() + '\n        versionCode ' + str(new_code) + '\n    '
+              block += '\n        versionCode ' + str(new_code) + '\n    '
 
           s = s[:opening + 1] + block + s[closing:]
           p.write_text(s, encoding='utf-8')
 
-          print('Configured Google Play versionCode:', new_code)
+          print('Configured versionCode:', new_code)
           PY
 
       - name: Configure Play Store signing
@@ -305,7 +352,9 @@ jobs:
               exit 1
             fi
 
-            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+            printf '%s' "$KEYSTORE_BASE64" \
+              | base64 --decode > android/app/release.keystore
+
             test -s android/app/release.keystore
 
             keytool -list \
@@ -320,19 +369,19 @@ jobs:
             if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || \
                [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
               echo "::error::KEYSTORE_BASE64 is missing."
-              echo "::error::Do not generate a new key unless this is a genuine first-time setup."
+              echo "::error::Only create a new key for genuine first-time setup."
               exit 1
             fi
 
             if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
                [ -z "${KEY_ALIAS:-}" ] || \
                [ -z "${KEY_PASSWORD:-}" ]; then
-              echo "::error::Set KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD in GitHub Secrets first."
+              echo "::error::Set all three signing secrets first."
               exit 1
             fi
 
             if [ "$KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]; then
-              echo "::error::For a new PKCS12 key, KEY_PASSWORD must equal KEYSTORE_PASSWORD."
+              echo "::error::For this PKCS12 setup both passwords must match."
               exit 1
             fi
 
@@ -405,15 +454,15 @@ jobs:
           p.write_text(s.rstrip() + '\n\n' + block.strip() + '\n', encoding='utf-8')
           PY
 
-      - name: Build Debug APK
+      - name: Build Signed Release APK
         working-directory: android
         shell: bash
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon assembleRelease
 
-      - name: Build Release AAB
+      - name: Build Signed Release AAB
         working-directory: android
         shell: bash
         run: |
@@ -425,11 +474,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          APK="android/app/build/outputs/apk/release/app-release.apk"
           AAB="android/app/build/outputs/bundle/release/app-release.aab"
 
           test -s "$APK" || {
-            echo "::error::Debug APK is missing or empty."
+            echo "::error::Release APK is missing or empty."
             exit 1
           }
 
@@ -438,39 +487,56 @@ jobs:
             exit 1
           }
 
+          echo "Checking APK archive..."
+          unzip -t "$APK"
+
+          echo "Checking AAB archive..."
+          unzip -t "$AAB"
+
+          echo "Verifying APK signature..."
+          apksigner verify --verbose "$APK"
+
           echo "Verifying AAB signature..."
           jarsigner -verify "$AAB"
 
           mkdir -p dist/apk dist/aab
-          cp "$APK" dist/apk/app-debug.apk
+
+          cp "$APK" dist/apk/app-release.apk
           cp "$AAB" dist/aab/app-release.aab
 
+          test -s dist/apk/app-release.apk
+          test -s dist/aab/app-release.aab
+
           echo "APK details:"
-          ls -lh dist/apk/app-debug.apk
-          sha256sum dist/apk/app-debug.apk
+          ls -lh dist/apk/app-release.apk
+          sha256sum dist/apk/app-release.apk
 
           echo "AAB details:"
           ls -lh dist/aab/app-release.aab
           sha256sum dist/aab/app-release.aab
 
-          AAB_SIZE_BYTES="$(stat -c '%s' dist/aab/app-release.aab)"
-          test "$AAB_SIZE_BYTES" -gt 0
-          echo "AAB_SIZE_BYTES=$AAB_SIZE_BYTES" >> "$GITHUB_ENV"
-          echo "Verified AAB size: $AAB_SIZE_BYTES bytes"
+          APK_SIZE="$(stat -c '%s' dist/apk/app-release.apk)"
+          AAB_SIZE="$(stat -c '%s' dist/aab/app-release.aab)"
+
+          echo "Verified APK size: $APK_SIZE bytes"
+          echo "Verified AAB size: $AAB_SIZE bytes"
+
+          echo "APK_SIZE_BYTES=$APK_SIZE" >> "$GITHUB_ENV"
+          echo "AAB_SIZE_BYTES=$AAB_SIZE" >> "$GITHUB_ENV"
+
+      - name: Upload Release APK separately
+        uses: actions/upload-artifact@v4
+        with:
+          name: Assamese-Sahayika-Release-APK
+          path: dist/apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload Release AAB separately
         uses: actions/upload-artifact@v4
         with:
           name: Assamese-Sahayika-Release-AAB
           path: dist/aab/app-release.aab
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload Debug APK separately
-        uses: actions/upload-artifact@v4
-        with:
-          name: Assamese-Sahayika-Debug-APK
-          path: dist/apk/app-debug.apk
           if-no-files-found: error
           retention-days: 14
 
