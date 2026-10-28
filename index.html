@@ -698,124 +698,61 @@ const ASSAMESE_STT_ENDPOINT=SUPABASE_URL+"/functions/v1/Assamese-stt";
 const ONLINE_SEARCH_ENDPOINT=SUPABASE_URL+"/functions/v1/online-search";
 let supabaseClient=null;
 function initSupabase(){try{if(!window.supabase)return false;supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);return true}catch(e){console.error(e);return false}}
-
 let pageHistory=[];let currentPage="home";
-
-try{
-  if(!history.state || !history.state.assameseSahayikaPage){
-    history.replaceState(
-      {assameseSahayikaPage:"home"},"",location.href
-    );
-  }
-}catch(e){}
-
-async function showPage(id,fromBack=false){
-  if(!fromBack && id!==currentPage){
-    pageHistory.push(currentPage);
-    try{
-      history.pushState(
-        {assameseSahayikaPage:id},
-        "",
-        "#"+encodeURIComponent(id)
-      );
-    }catch(e){}
-  }
-
-  document.querySelectorAll("main > section").forEach(s=>{
-    s.classList.add("hidden");
-  });
-
+// Keep browser history aligned with the visible in-app page for Android Back.
+try{if(!history.state || !history.state.assameseSahayikaPage){history.replaceState({assameseSahayikaPage:"home"},"");}}catch(e){}
+function renderAppPage(id){
+  document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
   const p=document.getElementById(id);
-  if(p)p.classList.remove("hidden");
-
+  if(p) p.classList.remove("hidden");
   currentPage=id;
-
   const bb=document.getElementById("appBackBtn");
   if(bb){
     bb.style.display=currentPage==="home"?"none":"block";
     bb.textContent="← আগৰ পৃষ্ঠা";
     bb.setAttribute("aria-label","আগৰ পৃষ্ঠালৈ উভতি যাওক");
   }
-
   window.scrollTo(0,0);
   document.documentElement.scrollTop=0;
   document.body.scrollTop=0;
-
   if(id==="admin"){checkAdminSession()}
 }
-
-function restorePreviousPage(){
-  stopAllAudio();
-
-  const previous=pageHistory.pop();
-
-  if(previous && document.getElementById(previous)){
-    showPage(previous,true);
+async function showPage(id,fromBack=false){
+  if(!document.getElementById(id)) return;
+  if(fromBack){renderAppPage(id);return;}
+  if(id===currentPage) return;
+  if(id==="home"){
+    // Home is the root: reset the in-app stack so Back at Home can exit normally.
+    pageHistory=[];
+    try{history.replaceState({assameseSahayikaPage:"home"},"");}catch(e){}
+    renderAppPage("home");
     return;
   }
-
-  pageHistory=[];
-
-  document.querySelectorAll("main > section").forEach(s=>{
-    s.classList.add("hidden");
-  });
-
-  const home=document.getElementById("home");
-  if(home)home.classList.remove("hidden");
-
-  currentPage="home";
-
-  const bb=document.getElementById("appBackBtn");
-  if(bb){
-    bb.style.display="none";
-    bb.textContent="← Home";
-  }
-
-  window.scrollTo(0,0);
-  document.documentElement.scrollTop=0;
-  document.body.scrollTop=0;
+  pageHistory.push(currentPage);
+  try{history.pushState({assameseSahayikaPage:id},"");}catch(e){}
+  renderAppPage(id);
 }
-
 function appBack(){
   stopAllAudio();
-
-  if(
-    pageHistory.length>0 &&
-    history.state &&
-    history.state.assameseSahayikaPage
-  ){
-    history.back();
-    return;
-  }
-
-  restorePreviousPage();
+  if(currentPage==="home") return;
+  // Use browser history so the Android system Back and in-app Back stay synchronized.
+  try{
+    if(history.state && history.state.assameseSahayikaPage===currentPage && pageHistory.length){history.back();return;}
+  }catch(e){}
+  const previous=pageHistory.pop()||"home";
+  renderAppPage(previous);
 }
-
-window.addEventListener("popstate", () => {
-  if (pageHistory.length > 0) {
-    restorePreviousPage();
+window.addEventListener("popstate",(event)=>{
+  stopAllAudio();
+  const target=(event.state && event.state.assameseSahayikaPage) || pageHistory.pop() || "home";
+  if(target!==currentPage){
+    // One history entry was left; discard the matching stack item when possible.
+    if(pageHistory.length && pageHistory[pageHistory.length-1]===target) pageHistory.pop();
+    renderAppPage(target);
+  }else if(target==="home"){
+    renderAppPage("home");
   }
 });
-
-// Android hardware Back button handling
-(function registerAndroidBackButton() {
-  const App = window.Capacitor?.Plugins?.App;
-
-  if (!App || typeof App.addListener !== "function") {
-    console.warn("Capacitor App plugin is unavailable");
-    return;
-  }
-
-  App.addListener("backButton", () => {
-    if (currentPage !== "home") {
-      appBack();
-    } else {
-      App.exitApp();
-    }
-  });
-})();
-
-
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
 async function dbSearch(term,limit=10){if(!supabaseClient)return{data:[],error:new Error("Supabase connection হোৱা নাই")};const clean=String(term).trim();if(!clean)return{data:[],error:null};const r=await supabaseClient.from("questions").select("*").or("question.ilike.%"+clean+"%,answer.ilike.%"+clean+"%").limit(limit);return{data:r.data||[],error:r.error||null}}
@@ -2092,7 +2029,7 @@ async function requestAccountDeletion() {
 /*
  * Ads policy:
  * - Show a banner when the native app opens.
- * - Prepare an interstitial, but only show it after 60 minutes at the next
+ * - Prepare an interstitial, but only show it after 30 minutes at the next
  *   normal page transition (never on app launch or during a lesson interaction).
  * - Do not request/show ads when the signed-in user has active Premium entitlement.
  * - Test IDs are used unless all three production AdMob IDs are configured in GitHub Secrets.
@@ -2105,14 +2042,14 @@ async function requestAccountDeletion() {
   const bannerId = String(config.bannerAdUnitId || TEST_BANNER_ID).trim();
   const interstitialId = String(config.interstitialAdUnitId || TEST_INTERSTITIAL_ID).trim();
   const usingTestIds = config.usingTestIds !== false;
-  const HOUR_MS = 60 * 60 * 1000;
+  const AD_INTERVAL_MS = 30 * 60 * 1000;
   let plugin = null;
   let initialized = false;
   let bannerShown = false;
   let premiumActive = false;
   let interstitialReady = false;
   let interstitialBusy = false;
-  let nextHourlyAdAt = Date.now() + HOUR_MS;
+  let nextHourlyAdAt = Date.now() + AD_INTERVAL_MS;
   let lastPremiumCheck = 0;
 
   function getNativeAdMob() {
@@ -2171,7 +2108,7 @@ async function requestAccountDeletion() {
       return true;
     } catch (error) {
       interstitialReady = false;
-      console.warn('Hourly interstitial did not load; it will be retried at a later safe transition.', error);
+      console.warn('30-minute interstitial did not load; it will be retried at a later safe transition.', error);
       return false;
     }
   }
@@ -2210,7 +2147,7 @@ async function requestAccountDeletion() {
     if (!interstitialReady) await prepareHourlyInterstitial();
   }
 
-  async function maybeShowHourlyInterstitial(pageId) {
+  async function maybeShowHalfHourInterstitial(pageId) {
     if (!plugin || premiumActive || interstitialBusy || Date.now() < nextHourlyAdAt) return;
     // Keep ads away from admin/privacy screens and only show at a page transition.
     if (pageId === 'admin' || pageId === 'privacy') return;
@@ -2220,18 +2157,18 @@ async function requestAccountDeletion() {
     try {
       if (!interstitialReady) {
         const loaded = await prepareHourlyInterstitial();
-        if (!loaded) { nextHourlyAdAt = Date.now() + HOUR_MS; return; }
+        if (!loaded) { nextHourlyAdAt = Date.now() + AD_INTERVAL_MS; return; }
       }
       if (typeof plugin.showInterstitial === 'function') {
         await plugin.showInterstitial();
         interstitialReady = false;
-        nextHourlyAdAt = Date.now() + HOUR_MS;
+        nextHourlyAdAt = Date.now() + AD_INTERVAL_MS;
         await prepareHourlyInterstitial();
       }
     } catch (error) {
       interstitialReady = false;
-      nextHourlyAdAt = Date.now() + HOUR_MS;
-      console.warn('Hourly interstitial could not be shown:', error);
+      nextHourlyAdAt = Date.now() + AD_INTERVAL_MS;
+      console.warn('30-minute interstitial could not be shown:', error);
     } finally {
       interstitialBusy = false;
     }
@@ -2266,26 +2203,26 @@ async function requestAccountDeletion() {
           setTimeout(function () { syncAdsWithPremium(true).catch(console.warn); }, 0);
         });
       }
-      // Check elapsed time while the app is foregrounded. Full-screen ad waits for a safe page transition.
+      // Check the 30-minute interval while the app is foregrounded. Full-screen ad waits for a safe page transition.
       window.setInterval(function () {
         if (document.visibilityState === 'visible' && Date.now() >= nextHourlyAdAt) {
           // Mark due only; do not interrupt a student while reading a lesson.
-          document.documentElement.setAttribute('data-hourly-ad-due', 'true');
+          document.documentElement.setAttribute('data-30-minute-ad-due', 'true');
         }
       }, 30000);
       document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') syncAdsWithPremium(true).catch(console.warn);
       });
 
-      // Hook page navigation so an hourly ad is shown only at a normal transition.
+      // Hook page navigation so a timed interstitial is shown only at a normal transition.
       const originalShowPage = window.showPage;
-      if (typeof originalShowPage === 'function' && !originalShowPage.__hourlyAdWrapped) {
+      if (typeof originalShowPage === 'function' && !originalShowPage.__halfHourAdWrapped) {
         const wrapped = async function (id) {
           const result = await originalShowPage.apply(this, arguments);
-          await maybeShowHourlyInterstitial(id);
+          await maybeShowHalfHourInterstitial(id);
           return result;
         };
-        wrapped.__hourlyAdWrapped = true;
+        wrapped.__halfHourAdWrapped = true;
         window.showPage = wrapped;
       }
     } catch (error) {
