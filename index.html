@@ -2022,7 +2022,7 @@ async function requestAccountDeletion() {
 /*
  * Ads policy:
  * - Show a banner when the native app opens.
- * - Prepare an interstitial, but only show it after 60 minutes at the next
+ * - Prepare an interstitial, but only show it after 30 minutes at the next
  *   normal page transition (never on app launch or during a lesson interaction).
  * - Do not request/show ads when the signed-in user has active Premium entitlement.
  * - Test IDs are used unless all three production AdMob IDs are configured in GitHub Secrets.
@@ -2035,14 +2035,14 @@ async function requestAccountDeletion() {
   const bannerId = String(config.bannerAdUnitId || TEST_BANNER_ID).trim();
   const interstitialId = String(config.interstitialAdUnitId || TEST_INTERSTITIAL_ID).trim();
   const usingTestIds = config.usingTestIds !== false;
-  const HOUR_MS = 60 * 60 * 1000;
+  const AD_INTERVAL_MS = 30 * 60 * 1000;
   let plugin = null;
   let initialized = false;
   let bannerShown = false;
   let premiumActive = false;
   let interstitialReady = false;
   let interstitialBusy = false;
-  let nextHourlyAdAt = Date.now() + HOUR_MS;
+  let nextInterstitialAt = Date.now() + AD_INTERVAL_MS;
   let lastPremiumCheck = 0;
 
   function getNativeAdMob() {
@@ -2093,7 +2093,7 @@ async function requestAccountDeletion() {
     console.info('Premium is active: AdMob ads disabled.');
   }
 
-  async function prepareHourlyInterstitial() {
+  async function prepareTimedInterstitial() {
     if (!plugin || premiumActive || typeof plugin.prepareInterstitial !== 'function') return false;
     try {
       await plugin.prepareInterstitial({ adId: interstitialId, isTesting: usingTestIds, npa: true });
@@ -2101,7 +2101,7 @@ async function requestAccountDeletion() {
       return true;
     } catch (error) {
       interstitialReady = false;
-      console.warn('Hourly interstitial did not load; it will be retried at a later safe transition.', error);
+      console.warn('Timed interstitial did not load; it will be retried at a later safe transition.', error);
       return false;
     }
   }
@@ -2137,11 +2137,11 @@ async function requestAccountDeletion() {
     }
     premiumActive = false;
     if (!bannerShown) await showLaunchBanner();
-    if (!interstitialReady) await prepareHourlyInterstitial();
+    if (!interstitialReady) await prepareTimedInterstitial();
   }
 
-  async function maybeShowHourlyInterstitial(pageId) {
-    if (!plugin || premiumActive || interstitialBusy || Date.now() < nextHourlyAdAt) return;
+  async function maybeShowTimedInterstitial(pageId) {
+    if (!plugin || premiumActive || interstitialBusy || Date.now() < nextInterstitialAt) return;
     // Keep ads away from admin/privacy screens and only show at a page transition.
     if (pageId === 'admin' || pageId === 'privacy') return;
     await syncAdsWithPremium(true);
@@ -2149,19 +2149,19 @@ async function requestAccountDeletion() {
     interstitialBusy = true;
     try {
       if (!interstitialReady) {
-        const loaded = await prepareHourlyInterstitial();
-        if (!loaded) { nextHourlyAdAt = Date.now() + HOUR_MS; return; }
+        const loaded = await prepareTimedInterstitial();
+        if (!loaded) { nextInterstitialAt = Date.now() + AD_INTERVAL_MS; return; }
       }
       if (typeof plugin.showInterstitial === 'function') {
         await plugin.showInterstitial();
         interstitialReady = false;
-        nextHourlyAdAt = Date.now() + HOUR_MS;
-        await prepareHourlyInterstitial();
+        nextInterstitialAt = Date.now() + AD_INTERVAL_MS;
+        await prepareTimedInterstitial();
       }
     } catch (error) {
       interstitialReady = false;
-      nextHourlyAdAt = Date.now() + HOUR_MS;
-      console.warn('Hourly interstitial could not be shown:', error);
+      nextInterstitialAt = Date.now() + AD_INTERVAL_MS;
+      console.warn('Timed interstitial could not be shown:', error);
     } finally {
       interstitialBusy = false;
     }
@@ -2198,24 +2198,24 @@ async function requestAccountDeletion() {
       }
       // Check elapsed time while the app is foregrounded. Full-screen ad waits for a safe page transition.
       window.setInterval(function () {
-        if (document.visibilityState === 'visible' && Date.now() >= nextHourlyAdAt) {
+        if (document.visibilityState === 'visible' && Date.now() >= nextInterstitialAt) {
           // Mark due only; do not interrupt a student while reading a lesson.
-          document.documentElement.setAttribute('data-hourly-ad-due', 'true');
+          document.documentElement.setAttribute('data-timed-ad-due', 'true');
         }
       }, 30000);
       document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') syncAdsWithPremium(true).catch(console.warn);
       });
 
-      // Hook page navigation so an hourly ad is shown only at a normal transition.
+      // Hook page navigation so an timed ad is shown only at a normal transition.
       const originalShowPage = window.showPage;
-      if (typeof originalShowPage === 'function' && !originalShowPage.__hourlyAdWrapped) {
+      if (typeof originalShowPage === 'function' && !originalShowPage.__timedAdWrapped) {
         const wrapped = async function (id) {
           const result = await originalShowPage.apply(this, arguments);
-          await maybeShowHourlyInterstitial(id);
+          await maybeShowTimedInterstitial(id);
           return result;
         };
-        wrapped.__hourlyAdWrapped = true;
+        wrapped.__timedAdWrapped = true;
         window.showPage = wrapped;
       }
     } catch (error) {
