@@ -791,10 +791,12 @@ function appBack(){
   restorePreviousPage();
 }
 
-window.addEventListener("popstate",()=>{
-  if(pageHistory.length>0){
+window.addEventListener("popstate", () => {
+  if (pageHistory.length > 0) {
     restorePreviousPage();
   }
+});
+
 // Android hardware Back button handling
 (function registerAndroidBackButton() {
   const App = window.Capacitor?.Plugins?.App;
@@ -808,10 +810,11 @@ window.addEventListener("popstate",()=>{
     if (currentPage !== "home") {
       appBack();
     } else {
-      restorePreviousPage();
+      App.exitApp();
     }
   });
 })();
+
 
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
