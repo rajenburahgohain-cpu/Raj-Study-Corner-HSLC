@@ -369,6 +369,26 @@ body{font-size:17px;line-height:1.7}
 </style>
 
 <style id="global-question-answer-colors">.result h3,.student-q-item,.recorded-qa-question,.question-text,.qa-question,.question,.admin-question-text,#adminQuestion{color:#c62828!important}.result .answer,.result .answer b,.recorded-qa-answer,.answer-text,.qa-answer,.correct-answer,#adminAnswer{color:#087f5b!important}.result .answer *{color:inherit}</style>
+
+<style id="qa-font-size-adjustment">
+/* Slightly smaller readable text for question-and-answer content only */
+.result, .result p, .result li, .result .answer, .result .answer *,
+.student-q-item, .student-q-item p, .student-q-item li,
+.recorded-qa-question, .recorded-qa-answer, .question-text, .qa-question, .question, .qa-answer, .answer-text, .correct-answer {
+  font-size: 15.5px !important;
+  line-height: 1.75 !important;
+}
+.answer { font-size: 16px !important; line-height: 1.8 !important; }
+@media (max-width: 420px) {
+  .result, .result p, .result li, .result .answer, .result .answer *,
+  .student-q-item, .student-q-item p, .student-q-item li,
+  .recorded-qa-question, .recorded-qa-answer, .question-text, .qa-question, .question, .qa-answer, .answer-text, .correct-answer {
+    font-size: 15px !important; line-height: 1.7 !important;
+  }
+  .answer { font-size: 15.5px !important; line-height: 1.75 !important; }
+}
+</style>
+
 </head><body>
 <header><h1>অসমীয়া সহায়িকা 10 + HSLC</h1><p>SEBA.দশম শ্ৰেণী. HSLC পৰীক্ষাৰ্থীৰ বাবে উপযোগী</p></header>
 <nav class="big-nav">
@@ -699,9 +719,9 @@ const ONLINE_SEARCH_ENDPOINT=SUPABASE_URL+"/functions/v1/online-search";
 let supabaseClient=null;
 function initSupabase(){try{if(!window.supabase)return false;supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);return true}catch(e){console.error(e);return false}}
 let pageHistory=[];let currentPage="home";
-// Keep browser history aligned with the visible in-app page for Android Back.
-try{if(!history.state || !history.state.assameseSahayikaPage){history.replaceState({assameseSahayikaPage:"home"},"");}}catch(e){}
-function renderAppPage(id){
+async function showPage(id,fromBack=false){
+  // Always explicitly switch visible sections; this avoids stale/hidden page state in Android WebView.
+  if(!fromBack && id!==currentPage) pageHistory.push(currentPage);
   document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
   const p=document.getElementById(id);
   if(p) p.classList.remove("hidden");
@@ -709,50 +729,32 @@ function renderAppPage(id){
   const bb=document.getElementById("appBackBtn");
   if(bb){
     bb.style.display=currentPage==="home"?"none":"block";
-    bb.textContent="← আগৰ পৃষ্ঠা";
-    bb.setAttribute("aria-label","আগৰ পৃষ্ঠালৈ উভতি যাওক");
+    bb.textContent="← Home";
+    bb.setAttribute("aria-label","Home পৃষ্ঠালৈ উভতি যাওক");
   }
+  // Instant reset is more reliable than smooth scrolling inside Android WebView.
   window.scrollTo(0,0);
   document.documentElement.scrollTop=0;
   document.body.scrollTop=0;
   if(id==="admin"){checkAdminSession()}
 }
-async function showPage(id,fromBack=false){
-  if(!document.getElementById(id)) return;
-  if(fromBack){renderAppPage(id);return;}
-  if(id===currentPage) return;
-  if(id==="home"){
-    // Home is the root: reset the in-app stack so Back at Home can exit normally.
-    pageHistory=[];
-    try{history.replaceState({assameseSahayikaPage:"home"},"");}catch(e){}
-    renderAppPage("home");
-    return;
-  }
-  pageHistory.push(currentPage);
-  try{history.pushState({assameseSahayikaPage:id},"");}catch(e){}
-  renderAppPage(id);
-}
 function appBack(){
   stopAllAudio();
-  if(currentPage==="home") return;
-  // Use browser history so the Android system Back and in-app Back stay synchronized.
-  try{
-    if(history.state && history.state.assameseSahayikaPage===currentPage && pageHistory.length){history.back();return;}
-  }catch(e){}
-  const previous=pageHistory.pop()||"home";
-  renderAppPage(previous);
+  pageHistory=[];
+  // Force the initial dashboard to be visible, even if a sub-page was opened by a direct handler.
+  document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
+  const home=document.getElementById("home");
+  if(home)home.classList.remove("hidden");
+  currentPage="home";
+  const bb=document.getElementById("appBackBtn");
+  if(bb){bb.style.display="none";bb.textContent="← Home";}
+  window.scrollTo(0,0);
+  document.documentElement.scrollTop=0;
+  document.body.scrollTop=0;
 }
-window.addEventListener("popstate",(event)=>{
-  stopAllAudio();
-  const target=(event.state && event.state.assameseSahayikaPage) || pageHistory.pop() || "home";
-  if(target!==currentPage){
-    // One history entry was left; discard the matching stack item when possible.
-    if(pageHistory.length && pageHistory[pageHistory.length-1]===target) pageHistory.pop();
-    renderAppPage(target);
-  }else if(target==="home"){
-    renderAppPage("home");
-  }
-});
+
+// Android/browser Back button returns directly to the initial Home dashboard.
+window.addEventListener("popstate",()=>{appBack();});
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
 async function dbSearch(term,limit=10){if(!supabaseClient)return{data:[],error:new Error("Supabase connection হোৱা নাই")};const clean=String(term).trim();if(!clean)return{data:[],error:null};const r=await supabaseClient.from("questions").select("*").or("question.ilike.%"+clean+"%,answer.ilike.%"+clean+"%").limit(limit);return{data:r.data||[],error:r.error||null}}
@@ -2236,53 +2238,6 @@ async function requestAccountDeletion() {
   } else {
     startAdManager().catch(console.warn);
   }
-})();
-</script>
-
-
-<script>
-/* Android Capacitor Back button fix:
-   - Inside a section: return to the previous in-app page.
-   - On Home: exit the Android app normally.
-   Requires @capacitor/app to be installed and synced in the Android project. */
-(function () {
-  'use strict';
-  let registered = false;
-  function registerNativeBackHandler() {
-    if (registered) return;
-    const cap = window.Capacitor;
-    const appPlugin = cap && cap.Plugins && cap.Plugins.App;
-    if (!appPlugin || typeof appPlugin.addListener !== 'function') return;
-    registered = true;
-    appPlugin.addListener('backButton', function () {
-      try {
-        if (typeof window.stopAllAudio === 'function') window.stopAllAudio();
-        const visiblePage = document.querySelector('main > section:not(.hidden)');
-        const page = visiblePage && visiblePage.id ? visiblePage.id : 'home';
-        if (page !== 'home' && typeof window.appBack === 'function') {
-          window.appBack();
-          return;
-        }
-        if (typeof appPlugin.exitApp === 'function') {
-          appPlugin.exitApp();
-        }
-      } catch (err) {
-        console.error('Android back-button handling failed:', err);
-      }
-    });
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', registerNativeBackHandler, { once: true });
-  } else {
-    registerNativeBackHandler();
-  }
-  // A short retry covers native bridge initialization that completes after DOM ready.
-  let attempts = 0;
-  const retry = window.setInterval(function () {
-    attempts += 1;
-    registerNativeBackHandler();
-    if (registered || attempts >= 20) window.clearInterval(retry);
-  }, 500);
 })();
 </script>
 
