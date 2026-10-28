@@ -731,21 +731,43 @@ async function showPage(id,fromBack=false){
 }
 function appBack(){
   stopAllAudio();
+  // Navigate to the previous in-app section where possible; otherwise return Home.
+  const previous = Array.isArray(pageHistory) ? pageHistory.pop() : null;
+  if(previous && previous !== currentPage && document.getElementById(previous)) {
+    showPage(previous, true);
+    return;
+  }
+  if(currentPage !== "home" && document.getElementById("home")) {
+    showPage("home", true);
+    pageHistory=[];
+    return;
+  }
+  // Already at Home: Android may close the app normally.
   pageHistory=[];
-  // Force the initial dashboard to be visible, even if a sub-page was opened by a direct handler.
-  document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
-  const home=document.getElementById("home");
-  if(home)home.classList.remove("hidden");
-  currentPage="home";
-  const bb=document.getElementById("appBackBtn");
-  if(bb){bb.style.display="none";bb.textContent="← Home";}
-  window.scrollTo(0,0);
-  document.documentElement.scrollTop=0;
-  document.body.scrollTop=0;
 }
 
-// Android/browser Back button returns directly to the initial Home dashboard.
+// Browser history fallback and Capacitor native Android Back button.
 window.addEventListener("popstate",()=>{appBack();});
+(function installNativeBackButton(){
+  let attempts=0;
+  function attach(){
+    const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if(App && typeof App.addListener === 'function') {
+      App.addListener('backButton', function(){
+        try {
+          if(typeof window.appBack === 'function') window.appBack();
+          else if(typeof appBack === 'function') appBack();
+        } catch(e) { console.warn('Native back navigation failed:', e); }
+      }).catch?.(e => console.warn('Could not attach native back listener:', e));
+      console.info('Capacitor native Back button listener attached.');
+      return;
+    }
+    attempts++;
+    if(attempts < 20) setTimeout(attach, 250);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach, {once:true});
+  else attach();
+})();
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
 async function dbSearch(term,limit=10){if(!supabaseClient)return{data:[],error:new Error("Supabase connection হোৱা নাই")};const clean=String(term).trim();if(!clean)return{data:[],error:null};const r=await supabaseClient.from("questions").select("*").or("question.ilike.%"+clean+"%,answer.ilike.%"+clean+"%").limit(limit);return{data:r.data||[],error:r.error||null}}
@@ -2022,8 +2044,8 @@ async function requestAccountDeletion() {
 /*
  * Ads policy:
  * - Show a banner when the native app opens.
- * - Prepare an interstitial, but only show it after 30 minutes at the next
- *   normal page transition (never on app launch or during a lesson interaction).
+ * - Request one interstitial when the native app starts, after AdMob setup/consent.
+ * - After that, show another interstitial every 30 minutes at the next normal page transition.
  * - Do not request/show ads when the signed-in user has active Premium entitlement.
  * - Test IDs are used unless all three production AdMob IDs are configured in GitHub Secrets.
  */
@@ -2125,6 +2147,25 @@ async function requestAccountDeletion() {
     }
   }
 
+  async function showLaunchInterstitial() {
+    if (!plugin || premiumActive || typeof plugin.showInterstitial !== 'function') return;
+    // First interstitial attempt is made during app startup, after consent and Premium checks.
+    if (!interstitialReady) {
+      const loaded = await prepareTimedInterstitial();
+      if (!loaded) return; // No ad available: keep the app usable and try again at a later transition.
+    }
+    try {
+      await plugin.showInterstitial();
+      interstitialReady = false;
+      nextInterstitialAt = Date.now() + AD_INTERVAL_MS;
+      await prepareTimedInterstitial();
+    } catch (error) {
+      interstitialReady = false;
+      nextInterstitialAt = Date.now() + AD_INTERVAL_MS;
+      console.warn('Launch interstitial could not be shown:', error);
+    }
+  }
+
   async function syncAdsWithPremium(forceCheck) {
     if (!plugin) return;
     const now = Date.now();
@@ -2191,6 +2232,7 @@ async function requestAccountDeletion() {
       }
       if (typeof plugin.initialize === 'function') await plugin.initialize();
       await syncAdsWithPremium(true);
+      if (!premiumActive) await showLaunchInterstitial();
       if (supabaseClient && supabaseClient.auth && typeof supabaseClient.auth.onAuthStateChange === 'function') {
         supabaseClient.auth.onAuthStateChange(function () {
           setTimeout(function () { syncAdsWithPremium(true).catch(console.warn); }, 0);
@@ -2304,7 +2346,7 @@ async function requestAccountDeletion() {
   margin: 0 0 8px !important;
   padding: 10px 8px 8px 12px !important;
   border: 0 !important;
-  border-left: 3px solid #2563eb !important;
+  border-left: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
   background: #fff !important;
