@@ -2029,7 +2029,7 @@ async function requestAccountDeletion() {
 /*
  * Ads policy:
  * - Show a banner when the native app opens.
- * - Prepare an interstitial, but only show it after 30 minutes at the next
+ * - Prepare an interstitial, but only show it after 60 minutes at the next
  *   normal page transition (never on app launch or during a lesson interaction).
  * - Do not request/show ads when the signed-in user has active Premium entitlement.
  * - Test IDs are used unless all three production AdMob IDs are configured in GitHub Secrets.
@@ -2042,14 +2042,14 @@ async function requestAccountDeletion() {
   const bannerId = String(config.bannerAdUnitId || TEST_BANNER_ID).trim();
   const interstitialId = String(config.interstitialAdUnitId || TEST_INTERSTITIAL_ID).trim();
   const usingTestIds = config.usingTestIds !== false;
-  const AD_INTERVAL_MS = 30 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
   let plugin = null;
   let initialized = false;
   let bannerShown = false;
   let premiumActive = false;
   let interstitialReady = false;
   let interstitialBusy = false;
-  let nextHourlyAdAt = Date.now() + AD_INTERVAL_MS;
+  let nextHourlyAdAt = Date.now() + HOUR_MS;
   let lastPremiumCheck = 0;
 
   function getNativeAdMob() {
@@ -2108,7 +2108,7 @@ async function requestAccountDeletion() {
       return true;
     } catch (error) {
       interstitialReady = false;
-      console.warn('30-minute interstitial did not load; it will be retried at a later safe transition.', error);
+      console.warn('Hourly interstitial did not load; it will be retried at a later safe transition.', error);
       return false;
     }
   }
@@ -2147,7 +2147,7 @@ async function requestAccountDeletion() {
     if (!interstitialReady) await prepareHourlyInterstitial();
   }
 
-  async function maybeShowHalfHourInterstitial(pageId) {
+  async function maybeShowHourlyInterstitial(pageId) {
     if (!plugin || premiumActive || interstitialBusy || Date.now() < nextHourlyAdAt) return;
     // Keep ads away from admin/privacy screens and only show at a page transition.
     if (pageId === 'admin' || pageId === 'privacy') return;
@@ -2157,18 +2157,18 @@ async function requestAccountDeletion() {
     try {
       if (!interstitialReady) {
         const loaded = await prepareHourlyInterstitial();
-        if (!loaded) { nextHourlyAdAt = Date.now() + AD_INTERVAL_MS; return; }
+        if (!loaded) { nextHourlyAdAt = Date.now() + HOUR_MS; return; }
       }
       if (typeof plugin.showInterstitial === 'function') {
         await plugin.showInterstitial();
         interstitialReady = false;
-        nextHourlyAdAt = Date.now() + AD_INTERVAL_MS;
+        nextHourlyAdAt = Date.now() + HOUR_MS;
         await prepareHourlyInterstitial();
       }
     } catch (error) {
       interstitialReady = false;
-      nextHourlyAdAt = Date.now() + AD_INTERVAL_MS;
-      console.warn('30-minute interstitial could not be shown:', error);
+      nextHourlyAdAt = Date.now() + HOUR_MS;
+      console.warn('Hourly interstitial could not be shown:', error);
     } finally {
       interstitialBusy = false;
     }
@@ -2203,26 +2203,26 @@ async function requestAccountDeletion() {
           setTimeout(function () { syncAdsWithPremium(true).catch(console.warn); }, 0);
         });
       }
-      // Check the 30-minute interval while the app is foregrounded. Full-screen ad waits for a safe page transition.
+      // Check elapsed time while the app is foregrounded. Full-screen ad waits for a safe page transition.
       window.setInterval(function () {
         if (document.visibilityState === 'visible' && Date.now() >= nextHourlyAdAt) {
           // Mark due only; do not interrupt a student while reading a lesson.
-          document.documentElement.setAttribute('data-30-minute-ad-due', 'true');
+          document.documentElement.setAttribute('data-hourly-ad-due', 'true');
         }
       }, 30000);
       document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') syncAdsWithPremium(true).catch(console.warn);
       });
 
-      // Hook page navigation so a timed interstitial is shown only at a normal transition.
+      // Hook page navigation so an hourly ad is shown only at a normal transition.
       const originalShowPage = window.showPage;
-      if (typeof originalShowPage === 'function' && !originalShowPage.__halfHourAdWrapped) {
+      if (typeof originalShowPage === 'function' && !originalShowPage.__hourlyAdWrapped) {
         const wrapped = async function (id) {
           const result = await originalShowPage.apply(this, arguments);
-          await maybeShowHalfHourInterstitial(id);
+          await maybeShowHourlyInterstitial(id);
           return result;
         };
-        wrapped.__halfHourAdWrapped = true;
+        wrapped.__hourlyAdWrapped = true;
         window.showPage = wrapped;
       }
     } catch (error) {
@@ -2236,6 +2236,53 @@ async function requestAccountDeletion() {
   } else {
     startAdManager().catch(console.warn);
   }
+})();
+</script>
+
+
+<script>
+/* Android Capacitor Back button fix:
+   - Inside a section: return to the previous in-app page.
+   - On Home: exit the Android app normally.
+   Requires @capacitor/app to be installed and synced in the Android project. */
+(function () {
+  'use strict';
+  let registered = false;
+  function registerNativeBackHandler() {
+    if (registered) return;
+    const cap = window.Capacitor;
+    const appPlugin = cap && cap.Plugins && cap.Plugins.App;
+    if (!appPlugin || typeof appPlugin.addListener !== 'function') return;
+    registered = true;
+    appPlugin.addListener('backButton', function () {
+      try {
+        if (typeof window.stopAllAudio === 'function') window.stopAllAudio();
+        const visiblePage = document.querySelector('main > section:not(.hidden)');
+        const page = visiblePage && visiblePage.id ? visiblePage.id : 'home';
+        if (page !== 'home' && typeof window.appBack === 'function') {
+          window.appBack();
+          return;
+        }
+        if (typeof appPlugin.exitApp === 'function') {
+          appPlugin.exitApp();
+        }
+      } catch (err) {
+        console.error('Android back-button handling failed:', err);
+      }
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', registerNativeBackHandler, { once: true });
+  } else {
+    registerNativeBackHandler();
+  }
+  // A short retry covers native bridge initialization that completes after DOM ready.
+  let attempts = 0;
+  const retry = window.setInterval(function () {
+    attempts += 1;
+    registerNativeBackHandler();
+    if (registered || attempts >= 20) window.clearInterval(retry);
+  }, 500);
 })();
 </script>
 
