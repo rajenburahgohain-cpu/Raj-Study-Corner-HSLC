@@ -2288,4 +2288,71 @@ async function requestAccountDeletion() {
 }
 </style>
 
+
+<style id="final-google-style-qa">
+/* Final Q&A layout: Google-like full-width results, bold questions, regular answers */
+#lessonQuestions, #onlineLessonResults {
+  width: calc(100vw - 24px) !important;
+  max-width: none !important;
+  margin-left: calc(50% - 50vw + 12px) !important;
+  padding: 0 12px !important;
+  box-sizing: border-box !important;
+}
+#lessonQuestions .result, #onlineLessonResults .result {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 0 8px !important;
+  padding: 10px 8px 8px 12px !important;
+  border: 0 !important;
+  border-left: 3px solid #2563eb !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: #fff !important;
+  font-weight: 400 !important;
+}
+#lessonQuestions .result h3, #onlineLessonResults .result h3,
+#lessonQuestions .result .question, #lessonQuestions .result .question-text,
+#lessonQuestions .result .qa-question {
+  font-size: 24px !important;
+  line-height: 1.35 !important;
+  font-weight: 700 !important;
+  margin: 0 0 6px !important;
+  color: #202124 !important;
+}
+#lessonQuestions .result .answer, #onlineLessonResults .result .answer,
+#lessonQuestions .result .answer *, #onlineLessonResults .result .answer *,
+#lessonQuestions .result p, #onlineLessonResults .result p {
+  font-size: 21px !important;
+  line-height: 1.45 !important;
+  font-weight: 400 !important;
+  margin: 4px 0 6px !important;
+  color: #202124 !important;
+  white-space: pre-wrap;
+}
+#lessonQuestions .result .answer b, #lessonQuestions .result .answer strong,
+#onlineLessonResults .result .answer b, #onlineLessonResults .result .answer strong {
+  font-weight: 400 !important;
+}
+/* Student-submitted Q&A: question bold, answer normal */
+.student-q-card .student-q-item { font-weight: 400 !important; }
+.student-q-card .student-q-item > b,
+.student-q-card .student-q-item .question-text,
+.recorded-qa-question { font-size: 24px !important; line-height: 1.35 !important; font-weight: 700 !important; }
+.student-q-card .student-q-item .sq-reply,
+.recorded-qa-answer { font-size: 21px !important; line-height: 1.45 !important; font-weight: 400 !important; }
+@media (max-width: 600px) {
+  #lessonQuestions, #onlineLessonResults {
+    width: 100vw !important;
+    margin-left: calc(50% - 50vw) !important;
+    padding: 0 10px !important;
+  }
+  #lessonQuestions .result h3, #onlineLessonResults .result h3,
+  #lessonQuestions .result .question, #lessonQuestions .result .question-text,
+  #lessonQuestions .result .qa-question,
+  .student-q-card .student-q-item > b, .recorded-qa-question { font-size: 24px !important; }
+  #lessonQuestions .result .answer, #onlineLessonResults .result .answer,
+  #lessonQuestions .result p, #onlineLessonResults .result p,
+  .student-q-card .student-q-item .sq-reply, .recorded-qa-answer { font-size: 21px !important; }
+}
+</style>
 </body></html>
