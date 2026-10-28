@@ -1,17 +1,9 @@
+name: Build Assamese Sahayika APK and AAB (Play Prep V64)
 
-name: Build Assamese Sahayika APK and AAB (Signed Play Build)
-
-"on":
+on:
   workflow_dispatch:
-    inputs:
-      create_new_upload_key:
-        description: "Create a new upload key only for first setup"
-        required: true
-        type: boolean
-        default: false
   push:
-    branches:
-      - main
+    branches: [main]
     paths-ignore:
       - 'README*'
       - 'premium_ads_setup.sql'
@@ -22,7 +14,6 @@ permissions:
 jobs:
   build-android:
     runs-on: ubuntu-latest
-
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -33,7 +24,6 @@ jobs:
       KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
       KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-      CREATE_NEW_UPLOAD_KEY: ${{ inputs.create_new_upload_key }}
 
     steps:
       - name: Checkout repository
@@ -43,6 +33,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: package-lock.json
+        continue-on-error: true
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -50,55 +43,36 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Verify Java tools
+      - name: Validate root HTML (prevents YAML being published as index.html)
         shell: bash
         run: |
-          set -euo pipefail
-          java -version
-          javac -version
-          test -x "$JAVA_HOME/bin/jarsigner"
-          "$JAVA_HOME/bin/jarsigner" -help >/dev/null
-          echo "Java signing tools are available."
+          set -e
+          test -s index.html || { echo '::error::Root index.html is missing or empty.'; exit 1; }
+          grep -qiE '<!doctype[[:space:]]+html|<html([[:space:]>])' index.html || {
+            echo '::error::Root index.html is not an HTML document. Put the YAML workflow only in .github/workflows/android-build.yml.'
+            exit 1
+          }
+          echo 'Valid HTML entry file found.'
 
-      - name: Validate HTML
+      - name: Configure Android SDK
         shell: bash
         run: |
-          set -euo pipefail
-          test -s index.html
-          grep -qiE '<!doctype[[:space:]]+html|<html([[:space:]>])' index.html
-
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
-            'platform-tools' \
-            'platforms;android-36' \
-            'build-tools;36.0.0'
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" || {
+            echo '::error::Android SDK sdkmanager not found on runner.'; exit 1;
+          }
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" --licenses || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$ANDROID_HOME" \
+            'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
 
-      - name: Prepare Capacitor Android project
+      - name: Prepare Capacitor project
         shell: bash
         run: |
-          set -euo pipefail
-
-          if [ ! -f package.json ]; then
-            npm init -y
-          fi
-
-          npm install --save-exact \
-            @capacitor/core@6 \
-            @capacitor/cli@6 \
-            @capacitor/android@6 \
-            @capacitor/app@6 \
-            @capacitor-community/admob@6
-
-          if [ ! -f capacitor.config.json ] && \
-             [ ! -f capacitor.config.ts ] && \
-             [ ! -f capacitor.config.js ]; then
+          set -e
+          if [ ! -f package.json ]; then npm init -y; fi
+          npm install --save-exact @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6 @capacitor-community/admob@6 @capacitor/app@6
+          if [ ! -f capacitor.config.json ] && [ ! -f capacitor.config.ts ] && [ ! -f capacitor.config.js ]; then
             cat > capacitor.config.json <<'CAPEOF'
           {
             "appId": "com.rbg.assamesesahayika",
@@ -107,287 +81,128 @@ jobs:
           }
           CAPEOF
           fi
-
           mkdir -p www
           cp index.html www/index.html
-
           for item in assets css js images; do
-            if [ -e "$item" ]; then
-              cp -R "$item" www/
-            fi
+            if [ -e "$item" ]; then cp -R "$item" www/; fi
           done
+          if [ ! -d android ]; then npx cap add android; fi
+          test -f android/app/src/main/AndroidManifest.xml || {
+            echo '::error::AndroidManifest.xml was not generated by Capacitor. Check the Android platform setup.'; exit 1;
+          }
 
-          if [ ! -d android ]; then
-            npx cap add android
-          fi
-
-          npx cap sync android
-          test -f android/app/src/main/AndroidManifest.xml
-
-      - name: Configure Android API, microphone and AdMob
+      - name: Write AdMob runtime configuration
         shell: bash
         run: |
-          set -euo pipefail
-
           python3 - <<'PY'
           from pathlib import Path
-          import re, os, json, html
-
-          variables = Path('android/variables.gradle')
-          if not variables.exists():
-              raise SystemExit('android/variables.gradle not found')
-
-          s = variables.read_text(encoding='utf-8')
-          s = re.sub(r'(compileSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
-          s = re.sub(r'(targetSdkVersion\s*=\s*)\d+', r'\g<1>36', s)
-
-          s, count = re.subn(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>24', s)
-          if count == 0:
-              raise SystemExit('Could not update minSdkVersion in variables.gradle')
-
-          variables.write_text(s, encoding='utf-8')
-
-          check = re.search(r'minSdkVersion\s*=\s*(\d+)', s)
-          if not check or int(check.group(1)) < 24:
-              raise SystemExit('minSdkVersion must be 24 or higher')
-
-          app_gradle = Path('android/app/build.gradle')
-          if app_gradle.exists():
-              s = app_gradle.read_text(encoding='utf-8')
-              s = re.sub(r'(compileSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
-              s = re.sub(r'(targetSdk\s*(?:=|\s)\s*)\d+', r'\g<1>36', s)
-              s = re.sub(r'(minSdk\s*=\s*)\d+', r'\g<1>24', s)
-              s = re.sub(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>24', s)
-              app_gradle.write_text(s, encoding='utf-8')
-
-          manifest = Path('android/app/src/main/AndroidManifest.xml')
-          s = manifest.read_text(encoding='utf-8')
-          root = re.search(r'<manifest\b[^>]*>', s)
-          if not root:
-              raise SystemExit('Android manifest root missing')
-
-          for perm in [
-              'android.permission.RECORD_AUDIO',
-              'android.permission.MODIFY_AUDIO_SETTINGS'
-          ]:
-              pat = r'<uses-permission\b[^>]*android:name="' + re.escape(perm) + r'"'
-              if not re.search(pat, s):
-                  s = s[:root.end()] + \
-                      f'\n    <uses-permission android:name="{perm}" />' + s[root.end():]
-                  root = re.search(r'<manifest\b[^>]*>', s)
-
+          import os, json
           test_app = 'ca-app-pub-3940256099942544~3347511713'
-          app_id = (os.getenv('ADMOB_APP_ID') or '').strip() or test_app
-          meta = '<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
-          pat = r'<meta-data\b(?=[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID")[^>]*/?>'
-
-          if re.search(pat, s):
-              s = re.sub(pat, meta, s, count=1)
-          else:
-              app = re.search(r'<application\b[^>]*>', s)
-              if not app:
-                  raise SystemExit('Android application tag missing')
-              s = s[:app.end()] + '\n        ' + meta + s[app.end():]
-
-          manifest.write_text(s, encoding='utf-8')
-
-          strings = Path('android/app/src/main/res/values/strings.xml')
-          strings.parent.mkdir(parents=True, exist_ok=True)
-          x = strings.read_text(encoding='utf-8') if strings.exists() else \
-              '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
-
-          item = '<string name="admob_app_id">' + html.escape(app_id, quote=True) + '</string>'
-          pat = r'<string\s+name="admob_app_id">.*?</string>'
-
-          if re.search(pat, x, re.S):
-              x = re.sub(pat, item, x, flags=re.S)
-          elif '</resources>' in x:
-              x = x.replace('</resources>', '    ' + item + '\n</resources>')
-          else:
-              raise SystemExit('strings.xml invalid')
-
-          strings.write_text(x, encoding='utf-8')
-
-          banner = (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip() or \
-              'ca-app-pub-3940256099942544/6300978111'
-          inter = (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip() or \
-              'ca-app-pub-3940256099942544/1033173712'
-
-          using_test = not all([
+          test_banner = 'ca-app-pub-3940256099942544/6300978111'
+          test_interstitial = 'ca-app-pub-3940256099942544/1033173712'
+          app = (os.getenv('ADMOB_APP_ID') or '').strip() or test_app
+          banner = (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip() or test_banner
+          interstitial = (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip() or test_interstitial
+          using_test = not all((
               (os.getenv('ADMOB_APP_ID') or '').strip(),
               (os.getenv('ADMOB_BANNER_UNIT_ID') or '').strip(),
-              (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip()
-          ])
-
+              (os.getenv('ADMOB_INTERSTITIAL_UNIT_ID') or '').strip(),
+          ))
           Path('www/admob-config.js').write_text(
               'window.ASSAMESE_SAHAYIKA_ADMOB = ' + json.dumps({
                   'bannerAdUnitId': banner,
-                  'interstitialAdUnitId': inter,
+                  'interstitialAdUnitId': interstitial,
                   'usingTestIds': using_test
-              }) + ';\n',
-              encoding='utf-8'
-          )
-
-          print('Android configuration prepared.')
-          print('Test Ad IDs active:', using_test)
+              }) + ';\n', encoding='utf-8')
+          Path('/tmp/admob_app_id.txt').write_text(app, encoding='utf-8')
+          print('AdMob runtime configuration written. Test IDs active:', using_test)
           PY
 
-      - name: Set a new Google Play version code
-        shell: bash
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-        run: |
-          set -euo pipefail
+      - name: Sync Capacitor Android
+        run: npx cap sync android
 
-          python3 - <<'PY'
-          from pathlib import Path
-          import os, re
-
-          p = Path('android/app/build.gradle')
-          if not p.exists():
-              raise SystemExit('android/app/build.gradle not found')
-
-          s = p.read_text(encoding='utf-8')
-          new_code = 1000 + int(os.environ['BUILD_NUMBER'])
-
-          start = s.find('defaultConfig')
-          if start < 0:
-              raise SystemExit('defaultConfig block not found')
-
-          opening = s.find('{', start)
-          if opening < 0:
-              raise SystemExit('defaultConfig opening brace not found')
-
-          depth = 0
-          closing = -1
-          for i in range(opening, len(s)):
-              if s[i] == '{':
-                  depth += 1
-              elif s[i] == '}':
-                  depth -= 1
-                  if depth == 0:
-                      closing = i
-                      break
-
-          if closing < 0:
-              raise SystemExit('defaultConfig closing brace not found')
-
-          block = s[opening + 1:closing]
-
-          if re.search(r'(?m)^\s*versionCode\s+\d+\s*$', block):
-              block = re.sub(
-                  r'(?m)^(\s*)versionCode\s+\d+\s*$',
-                  lambda m: m.group(1) + 'versionCode ' + str(new_code),
-                  block, count=1
-              )
-          elif re.search(r'(?m)^\s*versionCode\s*=\s*\d+\s*$', block):
-              block = re.sub(
-                  r'(?m)^(\s*)versionCode\s*=\s*\d+\s*$',
-                  lambda m: m.group(1) + 'versionCode = ' + str(new_code),
-                  block, count=1
-              )
-          else:
-              block = block.rstrip() + '\n        versionCode ' + str(new_code) + '\n    '
-
-          s = s[:opening + 1] + block + s[closing:]
-          p.write_text(s, encoding='utf-8')
-          print('Configured Google Play versionCode:', new_code)
-          PY
-
-      - name: Configure Play Store signing
-        id: signing
+      - name: Set Android API level to 36
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p android/app
-
-          if [ -n "${KEYSTORE_BASE64:-}" ]; then
-            if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
-               [ -z "${KEY_ALIAS:-}" ] || \
-               [ -z "${KEY_PASSWORD:-}" ]; then
-              echo "::error::All signing secrets are required."
-              exit 1
-            fi
-
-            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
-            test -s android/app/release.keystore
-
-            keytool -list \
-              -keystore android/app/release.keystore \
-              -storetype PKCS12 \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -alias "$KEY_ALIAS" >/dev/null
-
-            echo 'generated_keystore=false' >> "$GITHUB_OUTPUT"
-            echo 'Using saved signing key.'
-          else
-            if [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ] || \
-               [ "${CREATE_NEW_UPLOAD_KEY:-false}" != "true" ]; then
-              echo "::error::KEYSTORE_BASE64 is missing."
-              echo "::error::Do not generate a new key unless this is a genuine first-time setup."
-              exit 1
-            fi
-
-            if [ -z "${KEYSTORE_PASSWORD:-}" ] || \
-               [ -z "${KEY_ALIAS:-}" ] || \
-               [ -z "${KEY_PASSWORD:-}" ]; then
-              echo "::error::Set KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD in GitHub Secrets first."
-              exit 1
-            fi
-
-            if [ "$KEY_PASSWORD" != "$KEYSTORE_PASSWORD" ]; then
-              echo "::error::For a new PKCS12 key, KEY_PASSWORD must equal KEYSTORE_PASSWORD."
-              exit 1
-            fi
-
-            keytool -genkeypair -noprompt -v \
-              -keystore android/app/release.keystore \
-              -storetype PKCS12 \
-              -alias "$KEY_ALIAS" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -keypass "$KEY_PASSWORD" \
-              -dname 'CN=Assamese Sahayika, OU=App, O=RBG Study Corner, L=Guwahati, ST=Assam, C=IN'
-
-            keytool -list \
-              -keystore android/app/release.keystore \
-              -storetype PKCS12 \
-              -storepass "$KEYSTORE_PASSWORD" \
-              -alias "$KEY_ALIAS" >/dev/null
-
-            openssl enc -aes-256-cbc -salt -pbkdf2 \
-              -pass env:KEYSTORE_PASSWORD \
-              -in android/app/release.keystore \
-              -out "$RUNNER_TEMP/release-keystore.enc"
-
-            base64 -w 0 android/app/release.keystore \
-              > "$RUNNER_TEMP/release-keystore.base64"
-
-            echo 'generated_keystore=true' >> "$GITHUB_OUTPUT"
-            echo 'First signing key generated and verified.'
-          fi
-
-          python3 - <<'PY'
+          set -e
+          python3 - <<'PYCODE'
           from pathlib import Path
           import re
+          candidates = [Path('android/variables.gradle'), Path('android/app/build.gradle')]
+          for path in candidates:
+              if not path.exists(): continue
+              text = path.read_text(encoding='utf-8')
+              if path.name == 'variables.gradle':
+                  text = re.sub(r'(compileSdkVersion\s*=\s*)\d+', r'\g<1>36', text)
+                  text = re.sub(r'(targetSdkVersion\s*=\s*)\d+', r'\g<1>36', text)
+              else:
+                  text = re.sub(r'(compileSdk\s*(?:=| )\s*)\d+', r'\g<1>36', text)
+                  text = re.sub(r'(targetSdk\s*(?:=| )\s*)\d+', r'\g<1>36', text)
+              path.write_text(text, encoding='utf-8')
+          text = '\n'.join(p.read_text(encoding='utf-8') for p in candidates if p.exists())
+          if not re.search(r'compileSdkVersion\s*=\s*36|compileSdk\s*(?:=| )\s*36', text):
+              raise SystemExit('::error::Could not set compileSdk to API 36.')
+          if not re.search(r'targetSdkVersion\s*=\s*36|targetSdk\s*(?:=| )\s*36', text):
+              raise SystemExit('::error::Could not set targetSdk to API 36.')
+          print('compileSdk and targetSdk configured for Android API 36.')
+          PYCODE
 
-          p = Path('android/app/build.gradle')
-          s = p.read_text(encoding='utf-8')
+      - name: Configure Android permissions and AdMob App ID
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, html
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          if not manifest.exists(): raise SystemExit('::error::AndroidManifest.xml not found after Capacitor sync')
+          content = manifest.read_text(encoding='utf-8')
+          root = re.search(r'<manifest\b[^>]*>', content)
+          app = re.search(r'<application\b[^>]*>', content)
+          if not root or not app: raise SystemExit('::error::Manifest root/application tag missing')
+          for permission in ('android.permission.RECORD_AUDIO', 'android.permission.MODIFY_AUDIO_SETTINGS'):
+              pattern = r'<uses-permission\b[^>]*android:name="' + re.escape(permission) + r'"'
+              if not re.search(pattern, content):
+                  content = content[:root.end()] + f'\n    <uses-permission android:name="{permission}" />' + content[root.end():]
+                  root = re.search(r'<manifest\b[^>]*>', content)
+          meta = '<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="@string/admob_app_id" />'
+          if 'com.google.android.gms.ads.APPLICATION_ID' in content:
+              content = re.sub(r'<meta-data\b(?=[^>]*android:name="com\.google\.android\.gms\.ads\.APPLICATION_ID")[^>]*/?>', meta, content, count=1)
+          else:
+              app = re.search(r'<application\b[^>]*>', content)
+              content = content[:app.end()] + '\n        ' + meta + content[app.end():]
+          manifest.write_text(content, encoding='utf-8')
+          strings = Path('android/app/src/main/res/values/strings.xml')
+          strings.parent.mkdir(parents=True, exist_ok=True)
+          sc = strings.read_text(encoding='utf-8') if strings.exists() else '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+          app_id = html.escape(Path('/tmp/admob_app_id.txt').read_text(encoding='utf-8').strip(), quote=True)
+          item = f'<string name="admob_app_id">{app_id}</string>'
+          if re.search(r'<string\s+name="admob_app_id">.*?</string>', sc, re.S):
+              sc = re.sub(r'<string\s+name="admob_app_id">.*?</string>', item, sc, flags=re.S)
+          elif '</resources>' in sc:
+              sc = sc.replace('</resources>', f'    {item}\n</resources>')
+          else: raise SystemExit('::error::strings.xml has no resources closing tag')
+          strings.write_text(sc, encoding='utf-8')
+          print('Manifest permissions and AdMob App ID configured.')
+          PY
 
-          start = '// BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG'
-          end = '// END ASSAMESE SAHAYIKA SIGNING CONFIG'
+      - name: Verify native configuration
+        shell: bash
+        run: |
+          set -e
+          grep -q 'com.google.android.gms.ads.APPLICATION_ID' android/app/src/main/AndroidManifest.xml
+          grep -q 'admob_app_id' android/app/src/main/res/values/strings.xml
+          grep -q 'android.permission.RECORD_AUDIO' android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.MODIFY_AUDIO_SETTINGS' android/app/src/main/AndroidManifest.xml
+          test -s www/admob-config.js
+          echo 'Android manifest, permissions, and AdMob runtime config verified.'
 
-          s = re.sub(
-              re.escape(start) + r'.*?' + re.escape(end) + r'\s*',
-              '',
-              s,
-              flags=re.S
-          )
-
-          block = '''
-          // BEGIN ASSAMESE SAHAYIKA SIGNING CONFIG
+      - name: Configure optional Play Store signing
+        shell: bash
+        run: |
+          set -e
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+            cat >> android/app/build.gradle <<'GROOVY'
           android {
               signingConfigs {
                   release {
@@ -403,93 +218,28 @@ jobs:
                   }
               }
           }
-          // END ASSAMESE SAHAYIKA SIGNING CONFIG
-          '''
-
-          p.write_text(s.rstrip() + '\n\n' + block.strip() + '\n', encoding='utf-8')
-          PY
+          GROOVY
+            echo 'Play Store release signing configured.'
+          else
+            echo 'Signing secrets are not all configured. AAB will be built unsigned; it cannot be uploaded to Play Console until signed.'
+          fi
 
       - name: Build Debug APK
         working-directory: android
-        shell: bash
         run: |
-          set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
 
       - name: Build Release AAB
         working-directory: android
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew --no-daemon bundleRelease
+        run: ./gradlew --no-daemon bundleRelease
 
-      - name: Verify and prepare release files
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
-          AAB="android/app/build/outputs/bundle/release/app-release.aab"
-
-          test -s "$APK" || {
-            echo "::error::Debug APK is missing or empty."
-            exit 1
-          }
-
-          test -s "$AAB" || {
-            echo "::error::Release AAB is missing or empty."
-            exit 1
-          }
-
-          JARSIGNER="$JAVA_HOME/bin/jarsigner"
-          test -x "$JARSIGNER" || {
-            echo "::error::jarsigner not found at $JARSIGNER"
-            exit 1
-          }
-
-          echo "Verifying AAB signature..."
-          "$JARSIGNER" -verify "$AAB"
-
-          mkdir -p dist/apk dist/aab
-          cp "$APK" dist/apk/app-debug.apk
-          cp "$AAB" dist/aab/app-release.aab
-
-          echo "APK size and checksum:"
-          ls -lh dist/apk/app-debug.apk
-          sha256sum dist/apk/app-debug.apk
-
-          echo "AAB size and checksum:"
-          ls -lh dist/aab/app-release.aab
-          sha256sum dist/aab/app-release.aab
-
-          test -s dist/apk/app-debug.apk
-          test -s dist/aab/app-release.aab
-          echo "Both output files are non-empty."
-
-      - name: Upload Release AAB separately
+      - name: Upload APK and AAB artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Assamese-Sahayika-Release-AAB
-          path: dist/aab/app-release.aab
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload Debug APK separately
-        uses: actions/upload-artifact@v4
-        with:
-          name: Assamese-Sahayika-Debug-APK
-          path: dist/apk/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload first-time signing key backup
-        if: always() && steps.signing.outputs.generated_keystore == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Assamese-Sahayika-Key-Setup
+          name: Assamese-Sahayika-APK-AAB-Ads-Premium
           path: |
-            ${{ runner.temp }}/release-keystore.base64
-            ${{ runner.temp }}/release-keystore.enc
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 14
