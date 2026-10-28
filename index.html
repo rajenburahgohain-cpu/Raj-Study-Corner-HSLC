@@ -2249,4 +2249,43 @@ async function requestAccountDeletion() {
   .result .answer, .result .answer *, .recorded-qa-answer, .answer-text, .qa-answer, .correct-answer, .answer { font-size: 18px !important; }
 }
 </style>
+
+<style id="google-style-fullscreen-qa-fix">
+/* Full-width, Google-like question/answer reading layout; compact spacing and regular weight. */
+.card:has(#lessonQuestions) {
+  width:100vw !important; max-width:none !important; margin-left:calc(50% - 50vw) !important;
+  margin-right:calc(50% - 50vw) !important; padding:10px 0 !important;
+  border:0 !important; border-radius:0 !important; box-shadow:none !important; background:#fff !important;
+}
+#lessonQuestions { width:100% !important; max-width:none !important; padding:0 14px !important; margin:0 !important; }
+#lessonQuestions .result {
+  width:100% !important; max-width:none !important; margin:0 0 14px !important;
+  padding:0 !important; border:0 !important; border-radius:0 !important;
+  box-shadow:none !important; background:transparent !important; font-weight:400 !important;
+}
+#lessonQuestions .result * { font-weight:400 !important; }
+#lessonQuestions .result h3, #lessonQuestions .result .question,
+#lessonQuestions .result .question-text, #lessonQuestions .result .qa-question {
+  font-size:24px !important; line-height:1.35 !important; font-weight:400 !important;
+  margin:0 0 6px !important; color:#202124 !important;
+}
+#lessonQuestions .result .answer, #lessonQuestions .result .answer *,
+#lessonQuestions .result .qa-answer, #lessonQuestions .result .answer-text,
+#lessonQuestions .result p {
+  font-size:21px !important; line-height:1.45 !important; font-weight:400 !important;
+  margin-top:4px !important; margin-bottom:7px !important; color:#202124 !important;
+}
+#lessonQuestions .result strong, #lessonQuestions .result b { font-weight:400 !important; }
+/* Keep other app screens unchanged; compact online-search results too. */
+#onlineLessonResults .result { padding:8px 0 !important; margin:0 0 10px !important; border-left:0 !important; font-weight:400 !important; }
+#onlineLessonResults .result * { font-weight:400 !important; }
+#onlineLessonResults .result h3 { font-size:24px !important; line-height:1.35 !important; margin:0 0 6px !important; }
+#onlineLessonResults .result .answer, #onlineLessonResults .result p { font-size:21px !important; line-height:1.45 !important; margin:4px 0 7px !important; }
+@media(max-width:420px) {
+  #lessonQuestions { padding:0 12px !important; }
+  #lessonQuestions .result h3, #lessonQuestions .result .question, #lessonQuestions .result .question-text, #lessonQuestions .result .qa-question, #onlineLessonResults .result h3 { font-size:24px !important; line-height:1.35 !important; }
+  #lessonQuestions .result .answer, #lessonQuestions .result .answer *, #lessonQuestions .result .qa-answer, #lessonQuestions .result .answer-text, #lessonQuestions .result p, #onlineLessonResults .result .answer, #onlineLessonResults .result p { font-size:21px !important; line-height:1.45 !important; }
+}
+</style>
+
 </body></html>
