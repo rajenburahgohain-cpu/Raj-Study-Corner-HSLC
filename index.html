@@ -369,26 +369,6 @@ body{font-size:17px;line-height:1.7}
 </style>
 
 <style id="global-question-answer-colors">.result h3,.student-q-item,.recorded-qa-question,.question-text,.qa-question,.question,.admin-question-text,#adminQuestion{color:#c62828!important}.result .answer,.result .answer b,.recorded-qa-answer,.answer-text,.qa-answer,.correct-answer,#adminAnswer{color:#087f5b!important}.result .answer *{color:inherit}</style>
-
-<style id="qa-font-size-adjustment">
-/* Slightly smaller readable text for question-and-answer content only */
-.result, .result p, .result li, .result .answer, .result .answer *,
-.student-q-item, .student-q-item p, .student-q-item li,
-.recorded-qa-question, .recorded-qa-answer, .question-text, .qa-question, .question, .qa-answer, .answer-text, .correct-answer {
-  font-size: 15.5px !important;
-  line-height: 1.75 !important;
-}
-.answer { font-size: 16px !important; line-height: 1.8 !important; }
-@media (max-width: 420px) {
-  .result, .result p, .result li, .result .answer, .result .answer *,
-  .student-q-item, .student-q-item p, .student-q-item li,
-  .recorded-qa-question, .recorded-qa-answer, .question-text, .qa-question, .question, .qa-answer, .answer-text, .correct-answer {
-    font-size: 15px !important; line-height: 1.7 !important;
-  }
-  .answer { font-size: 15.5px !important; line-height: 1.75 !important; }
-}
-</style>
-
 </head><body>
 <header><h1>অসমীয়া সহায়িকা 10 + HSLC</h1><p>SEBA.দশম শ্ৰেণী. HSLC পৰীক্ষাৰ্থীৰ বাবে উপযোগী</p></header>
 <nav class="big-nav">
@@ -2241,4 +2221,21 @@ async function requestAccountDeletion() {
 })();
 </script>
 
+
+<style id="qa-font-size-requested">
+/* Keep question and answer text close to the size shown in the user's reference screenshot. */
+.result h3, .student-q-item .student-q-question, .recorded-qa-question, .question-text, .qa-question, .question, .admin-question-text {
+  font-size: 22px !important;
+  line-height: 1.6 !important;
+}
+.result .answer, .result .answer *, .recorded-qa-answer, .answer-text, .qa-answer, .correct-answer {
+  font-size: 19px !important;
+  line-height: 1.8 !important;
+}
+.answer { font-size: 19px !important; line-height: 1.8 !important; }
+@media (max-width: 420px) {
+  .result h3, .student-q-item .student-q-question, .recorded-qa-question, .question-text, .qa-question, .question, .admin-question-text { font-size: 21px !important; }
+  .result .answer, .result .answer *, .recorded-qa-answer, .answer-text, .qa-answer, .correct-answer, .answer { font-size: 18px !important; }
+}
+</style>
 </body></html>
