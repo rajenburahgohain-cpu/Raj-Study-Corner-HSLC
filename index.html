@@ -1613,75 +1613,87 @@ function clearAdminForm(){
 }
 let activeCloudVoice={targetId:null,buttonId:null,recorder:null,stream:null,audioContext:null,analyser:null,silenceTimer:null,startedAt:0,chunks:[]};
 function setAdminVoiceButton(targetId,buttonId,txt,disabled=false){const b=document.getElementById(buttonId);if(b){b.disabled=disabled;b.innerText=txt}}
+function finishAdminVoice(v){
+  if(activeCloudVoice!==v)return;
+  if(v.segmentTimer)clearTimeout(v.segmentTimer);
+  if(v.elapsedTimer)clearInterval(v.elapsedTimer);
+  if(v.stream){try{v.stream.getTracks().forEach(t=>t.stop())}catch(e){}}
+  if(v.audioContext){try{v.audioContext.close()}catch(e){}}
+  const targetId=v.targetId,buttonId=v.buttonId;
+  activeCloudVoice={targetId:null,buttonId:null,recorder:null,stream:null,audioContext:null,analyser:null,silenceTimer:null,startedAt:0,chunks:[]};
+  setAdminVoiceButton(targetId,buttonId,targetId==='adminQuestion'?'🎤 মাত কৈ প্ৰশ্ন লিখক':'🎤 মাত কৈ উত্তৰ লিখক',false);
+  const stopId=targetId==='adminQuestion'?'adminQuestionVoiceStopBtn':'adminAnswerVoiceStopBtn';
+  const stopButton=document.getElementById(stopId);if(stopButton)stopButton.disabled=true;
+}
 function stopAdminVoice(buttonId){
   const v=activeCloudVoice;
   if(v.buttonId!==buttonId)return;
-  if(v.silenceTimer)clearInterval(v.silenceTimer);
-  try{if(v.recorder&&v.recorder.state!=="inactive")v.recorder.stop()}catch(e){}
-  if(v.stream)v.stream.getTracks().forEach(t=>t.stop());
+  v.stopRequested=true;
+  if(v.segmentTimer){clearTimeout(v.segmentTimer);v.segmentTimer=null;}
+  if(v.recorder&&v.recorder.state!=='inactive'){
+    try{v.recorder.stop()}catch(e){if(!v.processing)finishAdminVoice(v)}
+  }else if(!v.processing){finishAdminVoice(v)}
+  setAdminVoiceButton(v.targetId,buttonId,'⏳ শেষৰ মাত লিখনীলৈ সলনি কৰি আছে…',true);
 }
 async function adminVoiceTo(targetId,buttonId){
   const el=document.getElementById(targetId),b=document.getElementById(buttonId);
   if(!el||!b)return;
   if(activeCloudVoice.recorder && activeCloudVoice.buttonId===buttonId){stopAdminVoice(buttonId);return;}
+  if(activeCloudVoice.recorder){alert('আগৰ মাতৰ ৰেকৰ্ডিং প্ৰথমে বন্ধ কৰক।');return;}
   try{
-    // Request the device microphone permission at the moment the user taps the voice button.
-    // Android WebView must ALSO grant RECORD_AUDIO through the native app permission handler.
-    if(!window.isSecureContext && location.hostname!=='localhost' && location.protocol!=='file:'){
-      throw new Error('Microphone ব্যৱহাৰৰ বাবে HTTPS connection লাগিব।');
-    }
-    if(!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia!=='function'){
-      throw new Error('এই app/browser-ত microphone API উপলব্ধ নহয়। Android app-ত RECORD_AUDIO permission আৰু WebView microphone permission সংযোগ কৰিব লাগিব।');
-    }
+    if(!window.isSecureContext && location.hostname!=='localhost' && location.protocol!=='file:')throw new Error('Microphone ব্যৱহাৰৰ বাবে HTTPS connection লাগিব।');
+    if(!navigator.mediaDevices||typeof navigator.mediaDevices.getUserMedia!=='function')throw new Error('এই app/browser-ত microphone API উপলব্ধ নহয়। Android app-ত RECORD_AUDIO permission আৰু WebView microphone permission সংযোগ কৰিব লাগিব।');
     const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
     const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(x=>window.MediaRecorder?.isTypeSupported?.(x))||'';
-    const recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined);
-    const chunks=[];
-    activeCloudVoice={targetId,buttonId,recorder,stream,audioContext:null,analyser:null,silenceTimer:null,startedAt:Date.now(),chunks};
-    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
-    recorder.onstop=async()=>{
-      const blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});
-      stream.getTracks().forEach(t=>t.stop());
-      if(activeCloudVoice.audioContext){try{activeCloudVoice.audioContext.close()}catch(e){}}
-      activeCloudVoice={targetId:null,buttonId:null,recorder:null,stream:null,audioContext:null,analyser:null,silenceTimer:null,startedAt:0,chunks:[]};
-      setAdminVoiceButton(targetId,buttonId,targetId==='adminQuestion'?'🎤 মাত কৈ প্ৰশ্ন লিখক':'🎤 মাত কৈ উত্তৰ লিখক',false);
-      const stopId=targetId==='adminQuestion'?'adminQuestionVoiceStopBtn':'adminAnswerVoiceStopBtn';
-      const stopButton=document.getElementById(stopId); if(stopButton) stopButton.disabled=true;
-      if(blob.size<1500){if(stopButton)stopButton.disabled=false;alert('🎤 যথেষ্ট মাত ৰেকৰ্ড হোৱা নাই। অলপ স্পষ্টকৈ কওক।');return;}
-      try { await transcribeAssameseBlob(blob,targetId); } finally { if(stopButton)stopButton.disabled=false; }
-    };
-    recorder.start(250);
-    setAdminVoiceButton(targetId,buttonId,'🔴 অসমীয়া মাত ৰেকৰ্ডিং হৈছে…',false);
-    document.getElementById(buttonId).disabled=false;
-    // V41: Assamese speech recording is manual-stop only. Do not stop on silence or time limit.
-    // Keep the microphone active until the admin presses the same button / stop control.
-    // Show elapsed time so the admin can see that recording is still running.
-    const startedAt=activeCloudVoice.startedAt;
-    activeCloudVoice.silenceTimer=setInterval(()=>{
-      if(!activeCloudVoice.recorder || activeCloudVoice.buttonId!==buttonId) return;
-      const seconds=Math.floor((Date.now()-startedAt)/1000);
-      const mm=String(Math.floor(seconds/60)).padStart(2,'0');
-      const ss=String(seconds%60).padStart(2,'0');
-      // Sarvam's synchronous Speech-to-Text REST endpoint accepts audio clips up to 30 seconds.
-      // Stop at 25 seconds to leave a safety margin; repeated recordings append to the same field.
-      if(seconds>=25){
-        clearInterval(activeCloudVoice.silenceTimer);
-        activeCloudVoice.silenceTimer=null;
-        alert('⏱️ ২৫ ছেকেণ্ডৰ ৰেকৰ্ডিং সম্পূৰ্ণ হৈছে। দীঘল উত্তৰ হ’লে লিখনীলৈ সলনি হোৱাৰ পিছত পুনৰ 🎤 টিপি পৰৱৰ্তী অংশ কওক। নতুন অংশটো আগৰ লিখনীৰ পিছত যোগ হ’ব।');
-        stopAdminVoice(buttonId);
-        return;
-      }
-      setAdminVoiceButton(targetId,buttonId,'🔴 ৰেকৰ্ডিং চলি আছে '+mm+':'+ss+' / 00:25 — বন্ধ কৰিবলৈ টিপক',false);
+    const v={targetId,buttonId,recorder:null,stream,audioContext:null,analyser:null,silenceTimer:null,segmentTimer:null,elapsedTimer:null,startedAt:Date.now(),chunks:[],stopRequested:false,processing:false};
+    activeCloudVoice=v;
+    const stopId=targetId==='adminQuestion'?'adminQuestionVoiceStopBtn':'adminAnswerVoiceStopBtn';
+    const stopButton=document.getElementById(stopId);if(stopButton)stopButton.disabled=false;
+    function startVoiceSegment(){
+      if(activeCloudVoice!==v||v.stopRequested)return;
+      const elapsed=Math.floor((Date.now()-v.startedAt)/1000);
+      let recorder;
+      try{recorder=new MediaRecorder(stream,mime?{mimeType:mime}:undefined)}catch(e){v.stopRequested=true;finishAdminVoice(v);alert('ৰেকৰ্ডিং আৰম্ভ কৰিব পৰা নগ’ল: '+(e.message||e));return;}
+      v.recorder=recorder;v.chunks=[];
+      recorder.ondataavailable=e=>{if(e.data&&e.data.size)v.chunks.push(e.data)};
+      recorder.onerror=e=>{console.warn('Voice recording error',e);v.stopRequested=true;try{if(recorder.state!=='inactive')recorder.stop()}catch(_){} };
+      recorder.onstop=async()=>{
+        const blob=new Blob(v.chunks,{type:recorder.mimeType||'audio/webm'});
+        v.recorder=null;v.chunks=[];v.processing=true;
+        if(blob.size>=1500){
+          try{await transcribeAssameseBlob(blob,targetId)}
+          catch(e){console.warn('Voice segment transcription failed',e);alert('⚠️ মাতৰ এটা অংশ লিখনীলৈ সলনি নহ’ল। Internet/Supabase সংযোগ পৰীক্ষা কৰক। ৰেকৰ্ডিং চলি থাকিব; বন্ধ কৰিবলৈ “মাত বন্ধ কৰক” টিপক।');}
+        }
+        v.processing=false;
+        if(activeCloudVoice!==v)return;
+        const total=Math.floor((Date.now()-v.startedAt)/1000);
+        if(v.stopRequested){finishAdminVoice(v);return;}
+        startVoiceSegment();
+      };
+      recorder.start(250);
+      const total=Math.floor((Date.now()-v.startedAt)/1000);
+      const mm=String(Math.floor(total/60)).padStart(2,'0'),ss=String(total%60).padStart(2,'0');
+      setAdminVoiceButton(targetId,buttonId,'🔴 ৰেকৰ্ডিং '+mm+':'+ss+' — এডমিনে বন্ধ কৰিবলৈ টিপক',false);
+      // The STT service accepts clips of about 30 seconds; transcribe in safe 25-second chunks.
+      v.segmentTimer=setTimeout(()=>{v.segmentTimer=null;if(v.recorder===recorder&&recorder.state!=='inactive')recorder.stop()},25000);
+    }
+    v.elapsedTimer=setInterval(()=>{
+      if(activeCloudVoice!==v)return;
+      const seconds=Math.floor((Date.now()-v.startedAt)/1000);
+      const mm=String(Math.floor(seconds/60)).padStart(2,'0'),ss=String(seconds%60).padStart(2,'0');
+      if(v.recorder&&!v.processing)setAdminVoiceButton(targetId,buttonId,'🔴 ৰেকৰ্ডিং '+mm+':'+ss+' — এডমিনে বন্ধ কৰিবলৈ টিপক',false);
     },1000);
+    startVoiceSegment();
   }catch(e){
     setAdminVoiceButton(targetId,buttonId,targetId==='adminQuestion'?'🎤 মাত কৈ প্ৰশ্ন লিখক':'🎤 মাত কৈ উত্তৰ লিখক',false);
     let reason=e.message||String(e);
-    if(e.name==='NotAllowedError'||e.name==='PermissionDeniedError') reason='Microphone permission Deny হৈছে। Mobile Settings → Apps → আপোনাৰ app → Permissions → Microphone → Allow কৰক; Chrome-ত চলালে Site settings → Microphone → Allow কৰক।';
-    else if(e.name==='NotFoundError'||e.name==='DevicesNotFoundError') reason='মোবাইলত microphone device পোৱা নগ’ল।';
-    else if(e.name==='NotReadableError'||e.name==='TrackStartError') reason='Microphone আন এটা app-এ ব্যৱহাৰ কৰি আছে। আন app বন্ধ কৰি পুনৰ চেষ্টা কৰক।';
+    if(e.name==='NotAllowedError'||e.name==='PermissionDeniedError')reason='Microphone permission Deny হৈছে। Mobile Settings → Apps → আপোনাৰ app → Permissions → Microphone → Allow কৰক; Chrome-ত চলালে Site settings → Microphone → Allow কৰক।';
+    else if(e.name==='NotFoundError'||e.name==='DevicesNotFoundError')reason='মোবাইলত microphone device পোৱা নগ’ল।';
+    else if(e.name==='NotReadableError'||e.name==='TrackStartError')reason='Microphone আন এটা app-এ ব্যৱহাৰ কৰি আছে। আন app বন্ধ কৰি পুনৰ চেষ্টা কৰক।';
     alert('🎤 Microphone আৰম্ভ কৰিব পৰা নগ’ল।\n\n'+reason+'\n\nAndroid APK-ত RECORD_AUDIO manifest permission আৰু WebView permission handling-ও লাগিব।');
   }
 }
+function recorderStopSafely(v){try{if(v.recorder&&v.recorder.state!=='inactive')v.recorder.stop()}catch(e){if(!v.processing)finishAdminVoice(v)}}
 async function transcribeAssameseBlob(blob,targetId,afterCb,retryCount=0){
   const el=document.getElementById(targetId);if(!el)return;
   const old=el.value;
