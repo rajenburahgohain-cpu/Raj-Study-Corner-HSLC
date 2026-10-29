@@ -746,27 +746,54 @@ function appBack(){
   pageHistory=[];
 }
 
-// Browser history fallback and Capacitor native Android Back button.
-window.addEventListener("popstate",()=>{appBack();});
-(function installNativeBackButton(){
-  let attempts=0;
-  function attach(){
-    const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
-    if(App && typeof App.addListener === 'function') {
-      App.addListener('backButton', function(){
-        try {
-          if(typeof window.appBack === 'function') window.appBack();
-          else if(typeof appBack === 'function') appBack();
-        } catch(e) { console.warn('Native back navigation failed:', e); }
-      }).catch?.(e => console.warn('Could not attach native back listener:', e));
-      console.info('Capacitor native Back button listener attached.');
-      return;
-    }
-    attempts++;
-    if(attempts < 20) setTimeout(attach, 250);
+// Android/browser Back handling. This isolated block leaves other app features unchanged.
+(function installReliableBackNavigation(){
+  let nativeBackAttached = false;
+  let attempts = 0;
+  function handleBack(){
+    try {
+      if (typeof window.appBack === 'function') window.appBack();
+      else if (typeof appBack === 'function') appBack();
+    } catch (e) { console.warn('Back navigation failed:', e); }
   }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach, {once:true});
-  else attach();
+  window.addEventListener('popstate', handleBack);
+  document.addEventListener('backbutton', function(e){
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    handleBack();
+  }, false);
+  // Fallback for WebViews that expose Back as a keyboard event.
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Escape' && e.key !== 'BrowserBack') return;
+    const el = document.activeElement;
+    if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+    e.preventDefault(); handleBack();
+  }, true);
+  function attachNative(){
+    if (nativeBackAttached) return;
+    try {
+      const cap = window.Capacitor;
+      let app = cap && cap.Plugins && cap.Plugins.App;
+      if (!app && cap && typeof cap.registerPlugin === 'function') {
+        try { app = cap.registerPlugin('App'); } catch (_) {}
+      }
+      if (app && typeof app.addListener === 'function') {
+        const result = app.addListener('backButton', function(){
+          if (typeof currentPage !== 'undefined' && currentPage === 'home') {
+            if (typeof app.exitApp === 'function') app.exitApp();
+          } else {
+            handleBack();
+          }
+        });
+        nativeBackAttached = true;
+        if (result && typeof result.catch === 'function') result.catch(function(err){ console.warn('Native Back listener registration failed:', err); });
+        console.info('Android Back listener attached.');
+        return;
+      }
+    } catch(e) { console.warn('Native Android Back listener unavailable:', e); }
+    if (attempts++ < 40) setTimeout(attachNative, 250);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attachNative, {once:true});
+  else attachNative();
 })();
 
 function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
