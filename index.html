@@ -618,7 +618,7 @@ body{font-size:17px;line-height:1.7}
 <h3>✍️ প্ৰশ্নোত্তৰ / বিষয়বস্তু লিখক</h3><button class="main-btn" style="width:auto" onclick="adminLogout()">Logout</button></div><input type="hidden" id="editId">
 <label>❓ প্ৰশ্ন</label><textarea id="adminQuestion" placeholder="প্ৰশ্ন লিখক"></textarea><button id="adminQuestionVoiceBtn" class="voice-write-btn" onclick="adminVoiceTo('adminQuestion','adminQuestionVoiceBtn')">🎤 মাত কৈ প্ৰশ্ন লিখক</button><button id="adminQuestionVoiceStopBtn" class="voice-stop-btn" onclick="stopAdminVoice('adminQuestionVoiceBtn')">⏹️ মাত বন্ধ কৰক</button>
 <label style="display:block;margin-top:10px">✅ উত্তৰ</label><textarea id="adminAnswer" placeholder="শুদ্ধ অসমীয়াত উত্তৰ লিখক"></textarea><button id="adminAnswerVoiceBtn" class="voice-write-btn" onclick="adminVoiceTo('adminAnswer','adminAnswerVoiceBtn')">🎤 মাত কৈ উত্তৰ লিখক</button><button id="adminAnswerVoiceStopBtn" class="voice-stop-btn" onclick="stopAdminVoice('adminAnswerVoiceBtn')">⏹️ মাত বন্ধ কৰক</button><div class="small" style="margin-top:6px">💡 প্ৰথমবাৰ 🎤 টিপিলে Microphone permission আহিলে <b>Allow</b> কৰক।</div><div class="small voice-global-note" style="margin-top:6px">🎙️ প্ৰশ্ন বা উত্তৰ ক’বলৈ 🎤 টিপক। কথা কোৱা শেষ হ’লে “মাত বন্ধ কৰক” টিপক; তাৰ পিছত ৰেকৰ্ডিংটো অসমীয়া লিখনীলৈ সলনি হৈ সংশ্লিষ্ট বাকচত দেখা যাব।</div>
-<div class="assamese-voice-status" aria-live="polite">🇦🇸 <b>অসমীয়া Voice-to-Text:</b> ৰেকৰ্ডিং বন্ধ কৰাৰ পিছত Supabase <b>Assamese-stt</b> সেৱাই লিখনী তৈয়াৰ কৰিব। এই সংস্কৰণত কথা কওঁতে live/তাৎক্ষণিক লিখনী দেখুৱাব নোৱাৰে; তাৰ বাবে streaming speech-to-text backend লাগিব। প্ৰথমবাৰ Microphone-ত <b>Allow</b> কৰক।</div>
+<div class="assamese-voice-status" aria-live="polite">🇦🇸 <b>অসমীয়া Voice-to-Text:</b> ফোন/Android WebView-ত Speech Recognition সমৰ্থিত থাকিলে কথা কোৱাৰ লগে লগে লাইভ লেখা দেখা যাব। সমৰ্থন নাথাকিলে Supabase Assamese-stt-ৰ অডিঅ’ অংশৰ বিকল্প ব্যৱস্থা ব্যৱহাৰ হ’ব। প্ৰথমবাৰ Microphone-ত <b>Allow</b> কৰক।</div>
 <div class="audio-tools">
 <h4>🎧 ৩। প্ৰশ্ন আৰু উত্তৰ অডিঅ' ৰেকৰ্ড কৰি সংৰক্ষণ</h4>
 <p class="assamese-only-note">Admin-এ প্ৰশ্ন আৰু উত্তৰ দুয়োটাই নিজৰ অসমীয়া কণ্ঠত ৰেকৰ্ড কৰিব পাৰে অথবা অডিঅ' ফাইল আপলোড কৰিব পাৰে। Save কৰাৰ পিছত পাঠৰ ভিতৰত দুয়োটা শুনিব পাৰিব।</p>
@@ -1616,6 +1616,7 @@ function setAdminVoiceButton(targetId,buttonId,txt,disabled=false){const b=docum
 function finishAdminVoice(v){
   if(activeCloudVoice!==v)return;
   if(v.segmentTimer)clearTimeout(v.segmentTimer);
+  if(v.liveRecognition){try{v.liveRecognition.onend=null;v.liveRecognition.stop()}catch(e){}}
   if(v.elapsedTimer)clearInterval(v.elapsedTimer);
   if(v.stream){try{v.stream.getTracks().forEach(t=>t.stop())}catch(e){}}
   if(v.audioContext){try{v.audioContext.close()}catch(e){}}
@@ -1630,6 +1631,7 @@ function stopAdminVoice(buttonId){
   if(v.buttonId!==buttonId)return;
   v.stopRequested=true;
   if(v.segmentTimer){clearTimeout(v.segmentTimer);v.segmentTimer=null;}
+  if(v.liveRecognition){try{v.liveRecognition.stop()}catch(e){}}
   if(v.recorder&&v.recorder.state!=='inactive'){
     try{v.recorder.stop()}catch(e){if(!v.processing)finishAdminVoice(v)}
   }else if(!v.processing){finishAdminVoice(v)}
@@ -1645,10 +1647,48 @@ async function adminVoiceTo(targetId,buttonId){
     if(!navigator.mediaDevices||typeof navigator.mediaDevices.getUserMedia!=='function')throw new Error('এই app/browser-ত microphone API উপলব্ধ নহয়। Android app-ত RECORD_AUDIO permission আৰু WebView microphone permission সংযোগ কৰিব লাগিব।');
     const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
     const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(x=>window.MediaRecorder?.isTypeSupported?.(x))||'';
-    const v={targetId,buttonId,recorder:null,stream,audioContext:null,analyser:null,silenceTimer:null,segmentTimer:null,elapsedTimer:null,startedAt:Date.now(),chunks:[],stopRequested:false,processing:false};
+    const v={targetId,buttonId,recorder:null,stream,audioContext:null,analyser:null,silenceTimer:null,segmentTimer:null,elapsedTimer:null,startedAt:Date.now(),chunks:[],stopRequested:false,processing:false,liveRecognition:null,liveRecognitionActive:false,liveFinalText:'',liveBaseText:el.value||''};
     activeCloudVoice=v;
     const stopId=targetId==='adminQuestion'?'adminQuestionVoiceStopBtn':'adminAnswerVoiceStopBtn';
     const stopButton=document.getElementById(stopId);if(stopButton)stopButton.disabled=false;
+    // Prefer browser/Android live speech recognition so spoken words appear while speaking.
+    // If the WebView does not support it, retain the existing Supabase audio transcription fallback.
+    const SpeechRecognitionAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(SpeechRecognitionAPI){
+      try{
+        const recognition=new SpeechRecognitionAPI();
+        recognition.lang='as-IN';recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=1;
+        v.liveRecognition=recognition;
+        recognition.onstart=()=>{if(activeCloudVoice===v){v.liveRecognitionActive=true;const note=document.querySelector('.voice-global-note');if(note)note.textContent='🎙️ লাইভ লেখা সক্ৰিয়: কথা কোৱাৰ লগে লগে প্ৰশ্ন/উত্তৰৰ বাকচত লেখা দেখা যাব। বন্ধ কৰিবলৈ “মাত বন্ধ কৰক” টিপক।';}};
+        recognition.onresult=(event)=>{
+          if(activeCloudVoice!==v)return;
+          let finalText='',interimText='';
+          for(let i=0;i<event.results.length;i++){
+            const result=event.results[i];const part=(result[0]?.transcript||'');
+            if(result.isFinal)finalText+=part;else interimText+=part;
+          }
+          v.liveFinalText=finalText;
+          const current=el.value||'';
+          // Preserve the text that was present when recording began, and refresh only the live transcript.
+          const spoken=(finalText+interimText).trim();
+          el.value=(v.liveBaseText? v.liveBaseText+(spoken?' ':''): '')+spoken;
+          el.dispatchEvent(new Event('input',{bubbles:true}));
+        };
+        recognition.onerror=(event)=>{
+          console.warn('Live Assamese speech recognition unavailable; using Supabase fallback',event.error);
+          v.liveRecognitionActive=false;
+          // Keep any final text already recognized, and allow audio chunks to use the existing fallback.
+          if(el.value){v.liveBaseText=el.value;v.liveFinalText='';}
+          try{recognition.stop()}catch(e){}
+          const note=document.querySelector('.voice-global-note');if(note)note.textContent='🎙️ লাইভ লেখা এই ফোনত উপলব্ধ নহ’ল; ৰেকৰ্ডিং চলি থাকিব আৰু অডিঅ’ অংশ Supabase-লৈ পঠিওৱা হ’ব।';
+        };
+        recognition.onend=()=>{
+          if(activeCloudVoice!==v)return;
+          if(!v.stopRequested&&v.liveRecognitionActive){try{recognition.start()}catch(e){v.liveRecognitionActive=false;}}
+        };
+        recognition.start();
+      }catch(recognitionError){console.warn('Could not start live speech recognition; using Supabase fallback',recognitionError);v.liveRecognition=null;v.liveRecognitionActive=false;}
+    }
     function startVoiceSegment(){
       if(activeCloudVoice!==v||v.stopRequested)return;
       const elapsed=Math.floor((Date.now()-v.startedAt)/1000);
@@ -1660,7 +1700,7 @@ async function adminVoiceTo(targetId,buttonId){
       recorder.onstop=async()=>{
         const blob=new Blob(v.chunks,{type:recorder.mimeType||'audio/webm'});
         v.recorder=null;v.chunks=[];v.processing=true;
-        if(blob.size>=1500){
+        if(blob.size>=1500 && !v.liveRecognitionActive){
           try{await transcribeAssameseBlob(blob,targetId)}
           catch(e){console.warn('Voice segment transcription failed',e);alert('⚠️ মাতৰ এটা অংশ লিখনীলৈ সলনি নহ’ল। Internet/Supabase সংযোগ পৰীক্ষা কৰক। ৰেকৰ্ডিং চলি থাকিব; বন্ধ কৰিবলৈ “মাত বন্ধ কৰক” টিপক।');}
         }
