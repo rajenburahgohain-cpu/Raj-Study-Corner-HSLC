@@ -617,8 +617,8 @@ body{font-size:17px;line-height:1.7}
 
 <h3>✍️ প্ৰশ্নোত্তৰ / বিষয়বস্তু লিখক</h3><button class="main-btn" style="width:auto" onclick="adminLogout()">Logout</button></div><input type="hidden" id="editId">
 <label>❓ প্ৰশ্ন</label><textarea id="adminQuestion" placeholder="প্ৰশ্ন লিখক"></textarea><button id="adminQuestionVoiceBtn" class="voice-write-btn" onclick="adminVoiceTo('adminQuestion','adminQuestionVoiceBtn')">🎤 মাত কৈ প্ৰশ্ন লিখক</button><button id="adminQuestionVoiceStopBtn" class="voice-stop-btn" onclick="stopAdminVoice('adminQuestionVoiceBtn')">⏹️ মাত বন্ধ কৰক</button>
-<label style="display:block;margin-top:10px">✅ উত্তৰ</label><textarea id="adminAnswer" placeholder="শুদ্ধ অসমীয়াত উত্তৰ লিখক"></textarea><button id="adminAnswerVoiceBtn" class="voice-write-btn" onclick="adminVoiceTo('adminAnswer','adminAnswerVoiceBtn')">🎤 মাত কৈ উত্তৰ লিখক</button><button id="adminAnswerVoiceStopBtn" class="voice-stop-btn" onclick="stopAdminVoice('adminAnswerVoiceBtn')">⏹️ মাত বন্ধ কৰক</button><div class="small" style="margin-top:6px">💡 প্ৰথমবাৰ 🎤 টিপিলে Microphone permission আহিলে <b>Allow</b> কৰক।</div><div class="small voice-global-note" style="margin-top:6px">🎙️ প্ৰশ্ন বা উত্তৰ ক’বলৈ 🎤 টিপক। এডমিনে “মাত বন্ধ কৰক” নটিপালৈকে একেটা ৰেকৰ্ডিং চলি থাকিব। বন্ধ কৰাৰ পিছত সম্পূৰ্ণ মাত Supabase-লৈ পঠিয়াই লেখা তৈয়াৰ হ’ব।</div>
-<div class="assamese-voice-status" aria-live="polite">🇦🇸 <b>অসমীয়া Voice-to-Text:</b> পূৰ্বৰ Supabase Assamese-stt পদ্ধতি ব্যৱহাৰ কৰা হ’ব। ৰেকৰ্ডিং একেৰাহে চলিব; এডমিনে বন্ধ কৰাৰ পিছতহে সম্পূৰ্ণ মাতৰ লেখা তৈয়াৰ হ’ব। Microphone permission Allow কৰিব লাগিব।</div>
+<label style="display:block;margin-top:10px">✅ উত্তৰ</label><textarea id="adminAnswer" placeholder="শুদ্ধ অসমীয়াত উত্তৰ লিখক"></textarea><button id="adminAnswerVoiceBtn" class="voice-write-btn" onclick="adminVoiceTo('adminAnswer','adminAnswerVoiceBtn')">🎤 মাত কৈ উত্তৰ লিখক</button><button id="adminAnswerVoiceStopBtn" class="voice-stop-btn" onclick="stopAdminVoice('adminAnswerVoiceBtn')">⏹️ মাত বন্ধ কৰক</button><div class="small" style="margin-top:6px">💡 প্ৰথমবাৰ 🎤 টিপিলে Microphone permission আহিলে <b>Allow</b> কৰক।</div>
+
 <div class="grid" style="margin-top:8px"><select id="adminType">
 <option value="Very Short Answer">অতি চমু প্ৰশ্নোত্তৰ</option>
 <option value="গদ্যাংশৰ মূলভাৱ">গদ্যাংশৰ মূলভাৱ</option>
@@ -644,7 +644,7 @@ body{font-size:17px;line-height:1.7}
 <div id="studentQuestionAdminList"></div>
 </div>
 <h3 style="margin-top:20px">📋 বিভাগ অনুসৰি প্ৰশ্নোত্তৰ পৰিচালনা</h3>
-<p class="small">পাঠসমূহ, ব্যাকৰণ, ৰচনা, দৰ্খাস্ত, ভাব সম্প্ৰসাৰণ, প্ৰতিবেদন, গদ্যাংশৰ মূলভাৱ, দ্ৰুতপাঠ আৰু HSLC — সকলো বিভাগ ইয়াত পৃথকে দেখিব। প্ৰশ্ন নাথাকিলেও বিভাগৰ নাম থাকিব; প্ৰশ্নোত্তৰ যোগ কৰিলে ইয়াত দেখুৱাব আৰু Edit/Delete কৰিব পাৰিব।</p>
+
 <div class="admin-list-filters" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin:10px 0">
   <select id="adminFilterSection" aria-label="বিভাগ অনুসৰি ফিল্টাৰ" onchange="filterAdminQuestions()">
     <option value="">সকলো বিভাগ</option><option value="lesson">📚 পাঠসমূহ</option><option value="grammar">📝 ব্যাকৰণ</option><option value="writing">✍️ ৰচনা</option><option value="application">📄 দৰ্খাস্ত</option><option value="expansion">💡 ভাব সম্প্ৰসাৰণ</option><option value="report">📰 প্ৰতিবেদন</option><option value="prose_summary">📝 গদ্যাংশৰ মূলভাৱ</option><option value="quick_read">📖 দ্ৰুতপাঠ</option><option value="hslc">🎯 HSLC</option>
@@ -1546,7 +1546,7 @@ async function adminVoiceTo(targetId,buttonId){
       v.chunks=[];
       try{
         if(blob.size<1500)throw new Error('ৰেকৰ্ডিং অতি সৰু। পুনৰ চেষ্টা কৰক।');
-        await transcribeAssameseBlob(blob,targetId);
+        await transcribeAssameseBlob(blob,targetId,undefined,0,Math.max(1,Math.ceil((Date.now()-v.startedAt)/1000)));
       }catch(e){console.warn('Final Assamese transcription failed',e);}
       v.processing=false;
       finishAdminVoice(v);
@@ -1572,7 +1572,7 @@ async function adminVoiceTo(targetId,buttonId){
   }
 }
 function recorderStopSafely(v){try{if(v.recorder&&v.recorder.state!=='inactive')v.recorder.stop()}catch(e){if(!v.processing)finishAdminVoice(v)}}
-async function transcribeAssameseBlob(blob,targetId,afterCb,retryCount=0){
+async function transcribeAssameseBlob(blob,targetId,afterCb,retryCount=0,durationSeconds=0){
   const el=document.getElementById(targetId);if(!el)return;
   const old=el.value;
   el.dataset.voiceStatus='processing';
@@ -1593,7 +1593,7 @@ async function transcribeAssameseBlob(blob,targetId,afterCb,retryCount=0){
     const timeout=setTimeout(()=>controller.abort(),130000);
     let r;
     try{
-      r=await fetch(ASSAMESE_STT_ENDPOINT,{method:'POST',headers,signal:controller.signal,body:JSON.stringify({audioBase64,audioMimeType:blob.type||'audio/webm'})});
+      r=await fetch(ASSAMESE_STT_ENDPOINT,{method:'POST',headers,signal:controller.signal,body:JSON.stringify({audioBase64,audioMimeType:blob.type||'audio/webm',durationSeconds})});
     }finally{clearTimeout(timeout)}
     const d=await r.json().catch(()=>({}));
     if(!r.ok || !d.transcript){
@@ -1613,12 +1613,12 @@ async function transcribeAssameseBlob(blob,targetId,afterCb,retryCount=0){
     window.lastFailedAssameseVoice=null;
     document.getElementById('retryAssameseVoiceBtn')?.remove();
   }catch(e){
-    window.lastFailedAssameseVoice={blob,targetId};
+    window.lastFailedAssameseVoice={blob,targetId,durationSeconds};
     if(b){b.innerText=targetId==='adminQuestion'?'🎤 মাত কৈ প্ৰশ্ন লিখক':'🎤 মাত কৈ উত্তৰ লিখক';document.getElementById('retryAssameseVoiceBtn')?.remove();b.insertAdjacentHTML('afterend','<button type="button" id="retryAssameseVoiceBtn" onclick="retryLastFailedAssameseVoice()" style="display:block;margin:8px 0;padding:10px 14px;border:1px solid #147d64;border-radius:10px;background:#e8fff6;color:#075b48;font-weight:700">🔁 আগৰ ৰেকৰ্ড কৰা অসমীয়া মাত পুনৰ চেষ্টা কৰক</button>');}
     const raw=e?.name==='AbortError'?'সেৱাৰ পৰা উত্তৰ আহিবলৈ ১৩০ ছেকেণ্ডতকৈ বেছি সময় লাগিল। আপোনাৰ ৰেকৰ্ডিং ৰখা হৈছে।':(e?.message||String(e));
     const message=String(raw).replace(/\[object Object\]/g,'Server-এ ভুলৰ তথ্য object হিচাপে পঠিয়াইছে।');
     const retry=retryCount===0 && confirm('❌ অসমীয়া মাতৰ লিখনী তৈয়াৰ নহ’ল।\n\nৰেকৰ্ড কৰা মাতটো মচি যোৱা নাই; এইটো পুনৰ চেষ্টা কৰিবনে?\n\nকাৰণ: '+message);
-    if(retry){await transcribeAssameseBlob(blob,targetId,afterCb,1);return;}
+    if(retry){await transcribeAssameseBlob(blob,targetId,afterCb,1,durationSeconds);return;}
     alert('❌ অসমীয়া Voice-to-Text সম্পূৰ্ণ নহ’ল। আপোনাৰ মাতটো এই পৃষ্ঠাত সাময়িকভাৱে ৰখা হৈছে।\n\nকাৰণ: '+message+'\n\nপ্ৰয়োজন হ’লে পৃষ্ঠাটো বন্ধ নকৰি পুনৰ চেষ্টা কৰক।');
   }
 }
@@ -1626,7 +1626,7 @@ async function retryLastFailedAssameseVoice(){
   const saved=window.lastFailedAssameseVoice;
   if(!saved?.blob){alert('পুনৰ চেষ্টা কৰিব পৰা ৰেকৰ্ডিং পোৱা নগ’ল।');return;}
   document.getElementById('retryAssameseVoiceBtn')?.remove();
-  await transcribeAssameseBlob(saved.blob,saved.targetId,undefined,1);
+  await transcribeAssameseBlob(saved.blob,saved.targetId,undefined,1,saved.durationSeconds||0);
 }
 
 // ===== Live student sync for Admin question changes =====
