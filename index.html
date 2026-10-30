@@ -1509,7 +1509,23 @@ function finishAdminVoice(v){
   const stopId=targetId==='adminQuestion'?'adminQuestionVoiceStopBtn':'adminAnswerVoiceStopBtn';
   const stopButton=document.getElementById(stopId);if(stopButton)stopButton.disabled=true;
 }
+let activeRealtimeVoice=null;
 function stopAdminVoice(buttonId){
+  const live=activeRealtimeVoice;
+  if(live && live.buttonId===buttonId){
+    if(live.stopping)return;
+    live.stopping=true;
+    setAdminVoiceButton(live.targetId,buttonId,'⏳ মাতৰ লিখনী সম্পূৰ্ণ কৰি আছে…',true);
+    try{
+      if(live.socket && live.socket.readyState===WebSocket.OPEN){
+        live.socket.send(JSON.stringify({event:'speech_end'}));
+        live.socket.send(JSON.stringify({event:'flush'}));
+      }else finishRealtimeVoice(live);
+      // This is a post-stop finalization wait only; it never stops a recording.
+      live.finalizeTimer=setTimeout(()=>finishRealtimeVoice(live),5000);
+    }catch(e){console.warn('Realtime stop failed',e);finishRealtimeVoice(live);}
+    return;
+  }
   const v=activeCloudVoice;
   if(v.buttonId!==buttonId)return;
   v.stopRequested=true;
@@ -1518,7 +1534,104 @@ function stopAdminVoice(buttonId){
     try{v.recorder.stop()}catch(e){console.warn('Could not stop voice recorder',e);}
   }
 }
+function updateRealtimeText(v){
+  const el=document.getElementById(v.targetId);if(!el)return;
+  const speech=[...v.finalParts,v.partialText].filter(Boolean).join(' ');
+  el.value=[v.baseText,speech].filter(Boolean).join(v.baseText&&speech?' ':'');
+  el.dispatchEvent(new Event('input',{bubbles:true}));
+}
+function finishRealtimeVoice(v){
+  if(activeRealtimeVoice!==v)return;
+  if(v.finalizeTimer)clearTimeout(v.finalizeTimer);
+  try{if(v.processor){v.processor.onaudioprocess=null;v.processor.disconnect();}}catch(e){}
+  try{v.source.disconnect();}catch(e){}
+  try{v.silentGain.disconnect();}catch(e){}
+  try{v.audioContext.close();}catch(e){}
+  try{v.stream.getTracks().forEach(t=>t.stop());}catch(e){}
+  try{if(v.socket && v.socket.readyState<2)v.socket.close();}catch(e){}
+  const targetId=v.targetId,buttonId=v.buttonId;
+  activeRealtimeVoice=null;
+  setAdminVoiceButton(targetId,buttonId,targetId==='adminQuestion'?'🎤 মাত কৈ প্ৰশ্ন লিখক':'🎤 মাত কৈ উত্তৰ লিখক',false);
+  const stopId=targetId==='adminQuestion'?'adminQuestionVoiceStopBtn':'adminAnswerVoiceStopBtn';
+  const stopButton=document.getElementById(stopId);if(stopButton)stopButton.disabled=true;
+}
+function floatTo16kPcm(input,sourceRate){
+  const outLength=Math.floor(input.length*16000/sourceRate);
+  const out=new Int16Array(outLength);
+  for(let i=0;i<outLength;i++){
+    const pos=i*sourceRate/16000,idx=Math.floor(pos),frac=pos-idx;
+    const a=input[Math.min(idx,input.length-1)]||0;
+    const b=input[Math.min(idx+1,input.length-1)]||0;
+    const sample=Math.max(-1,Math.min(1,a+(b-a)*frac));
+    out[i]=sample<0?sample*32768:sample*32767;
+  }
+  return out;
+}
+function pcmBase64(pcm){
+  const bytes=new Uint8Array(pcm.buffer,pcm.byteOffset,pcm.byteLength);
+  let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,Math.min(i+0x8000,bytes.length)));
+  return btoa(binary);
+}
 async function adminVoiceTo(targetId,buttonId){
+  const el=document.getElementById(targetId),b=document.getElementById(buttonId);
+  if(!el||!b)return;
+  if(activeRealtimeVoice && activeRealtimeVoice.buttonId===buttonId){alert('ৰেকৰ্ডিং চলি আছে। বন্ধ কৰিবলৈ “মাত বন্ধ কৰক” বুটাম টিপক।');return;}
+  if(activeRealtimeVoice || activeCloudVoice.recorder){alert('আগৰ মাতৰ ৰেকৰ্ডিং প্ৰথমে “মাত বন্ধ কৰক” টিপি বন্ধ কৰক।');return;}
+  let stream=null,audioContext=null,socket=null;
+  try{
+    if(!window.isSecureContext && location.hostname!=='localhost')throw new Error('Microphone ব্যৱহাৰৰ বাবে HTTPS connection লাগিব।');
+    if(!navigator.mediaDevices?.getUserMedia)throw new Error('এই App-ত Microphone API উপলব্ধ নহয়।');
+    if(!supabaseClient)throw new Error('Supabase আৰম্ভ হোৱা নাই।');
+    const {data:{session}}=await supabaseClient.auth.getSession();
+    if(!session?.access_token)throw new Error('Admin Login session পোৱা নগ’ল। পুনৰ Login কৰক।');
+    stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    audioContext=new (window.AudioContext||window.webkitAudioContext)();
+    if(audioContext.state==='suspended')await audioContext.resume();
+    const wsUrl=SUPABASE_URL.replace(/^https:/,'wss:').replace(/^http:/,'ws:')+'/functions/v1/Assamese-stt-realtime';
+    socket=new WebSocket(wsUrl,['assamese-stt-realtime','jwt-'+session.access_token]);
+    const v={targetId,buttonId,stream,audioContext,socket,source:null,processor:null,silentGain:null,baseText:el.value.trim(),finalParts:[],partialText:'',stopping:false,finalizeTimer:null,startedAt:Date.now()};
+    activeRealtimeVoice=v;
+    const stopId=targetId==='adminQuestion'?'adminQuestionVoiceStopBtn':'adminAnswerVoiceStopBtn';
+    const stopButton=document.getElementById(stopId);if(stopButton)stopButton.disabled=false;
+    setAdminVoiceButton(targetId,buttonId,'🔴 Live মাত লিখি থকা হৈছে — বন্ধ কৰিবলৈ “মাত বন্ধ কৰক” টিপক',false);
+    await new Promise((resolve,reject)=>{
+      const timeout=setTimeout(()=>reject(new Error('Realtime server-ৰ সৈতে সংযোগ স্থাপন নহ’ল।')),12000);
+      socket.onopen=()=>{clearTimeout(timeout);resolve();};
+      socket.onerror=()=>{clearTimeout(timeout);reject(new Error('Realtime voice server-ৰ সংযোগত সমস্যা হৈছে।'));};
+      socket.onclose=(e)=>{clearTimeout(timeout);if(!v.ready)reject(new Error('Realtime server-এ সংযোগ বন্ধ কৰিলে (code '+e.code+').'));else if(!v.stopping)finishRealtimeVoice(v);};
+    });
+    v.ready=true;
+    socket.onmessage=(event)=>{
+      let d;try{d=JSON.parse(event.data)}catch(e){return;}
+      if(d.event==='error'){console.warn('Realtime STT error',d);if(!v.stopping)alert('অসমীয়া Live Voice-ত সমস্যা: '+(d.message||d.code||'Unknown error'));return;}
+      if(d.event==='transcript.partial'){
+        v.partialText=String(d.text||'').trim();updateRealtimeText(v);
+      }else if(d.event==='transcript.final'){
+        const t=String(d.text||'').trim();if(t)v.finalParts.push(t);v.partialText='';updateRealtimeText(v);
+        if(v.stopping)finishRealtimeVoice(v);
+      }else if(d.event==='session.end' && v.stopping){finishRealtimeVoice(v);}
+    };
+    socket.send(JSON.stringify({event:'speech_start'}));
+    v.source=audioContext.createMediaStreamSource(stream);
+    v.processor=audioContext.createScriptProcessor(4096,1,1);
+    v.silentGain=audioContext.createGain();v.silentGain.gain.value=0;
+    v.processor.onaudioprocess=(event)=>{
+      if(activeRealtimeVoice!==v||v.stopping||socket.readyState!==WebSocket.OPEN)return;
+      const input=event.inputBuffer.getChannelData(0);
+      const pcm=floatTo16kPcm(input,audioContext.sampleRate);
+      if(!pcm.length)return;
+      socket.send(JSON.stringify({event:'audio_input',audio:pcmBase64(pcm)}));
+    };
+    v.source.connect(v.processor);v.processor.connect(v.silentGain);v.silentGain.connect(audioContext.destination);
+  }catch(e){
+    if(activeRealtimeVoice && activeRealtimeVoice.buttonId===buttonId)finishRealtimeVoice(activeRealtimeVoice);
+    else{try{stream?.getTracks().forEach(t=>t.stop())}catch(x){};try{audioContext?.close()}catch(x){};try{socket?.close()}catch(x){}}
+    setAdminVoiceButton(targetId,buttonId,targetId==='adminQuestion'?'🎤 মাত কৈ প্ৰশ্ন লিখক':'🎤 মাত কৈ উত্তৰ লিখক',false);
+    const reason=e?.message||String(e);
+    alert('🎤 Live Assamese Voice আৰম্ভ কৰিব পৰা নগ’ল।\n\n'+reason+'\n\nপুৰণি ৰেকৰ্ডিং পদ্ধতি ব্যৱহাৰ কৰিবলৈ পুনৰ চেষ্টা কৰাৰ আগতে সমস্যাটো সমাধান কৰক।');
+  }
+}
+async function adminVoiceToBatch(targetId,buttonId){
   const el=document.getElementById(targetId),b=document.getElementById(buttonId);
   if(!el||!b)return;
   if(activeCloudVoice.recorder && activeCloudVoice.buttonId===buttonId){stopAdminVoice(buttonId);return;}
@@ -2360,4 +2473,5 @@ html { -webkit-text-size-adjust: 100% !important; text-size-adjust: 100% !import
   font-size: 14px !important; line-height: 1.5 !important; font-weight: 400 !important;
 }
 </style>
+<!-- Assamese Sahayika: Sarvam Realtime Admin Voice v1; manual Admin stop only. -->
 </body></html>
