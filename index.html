@@ -1590,14 +1590,14 @@ async function transcribeAssameseBlob(blob,targetId,afterCb,retryCount=0){
     const headers={'Content-Type':'application/json'};
     if(session?.access_token)headers.Authorization='Bearer '+session.access_token;
     const controller=new AbortController();
-    const timeout=setTimeout(()=>controller.abort(),90000);
+    const timeout=setTimeout(()=>controller.abort(),130000);
     let r;
     try{
       r=await fetch(ASSAMESE_STT_ENDPOINT,{method:'POST',headers,signal:controller.signal,body:JSON.stringify({audioBase64,audioMimeType:blob.type||'audio/webm'})});
     }finally{clearTimeout(timeout)}
     const d=await r.json().catch(()=>({}));
     if(!r.ok || !d.transcript){
-      let detail=d.error||d.message||d.details||'';
+      let detail=d.details||d.error||d.message||'';
       if(typeof detail==='object')detail=JSON.stringify(detail);
       if(!detail)detail='HTTP '+r.status+' — server-এ লিখনী ঘূৰাই দিয়া নাই।';
       if(r.status===401||r.status===403)detail='লগইন session শেষ হৈছে বা অনুমতি নাই। Admin-ৰ পৰা Logout কৰি পুনৰ Login কৰক। ('+detail+')';
@@ -1615,7 +1615,7 @@ async function transcribeAssameseBlob(blob,targetId,afterCb,retryCount=0){
   }catch(e){
     window.lastFailedAssameseVoice={blob,targetId};
     if(b){b.innerText=targetId==='adminQuestion'?'🎤 মাত কৈ প্ৰশ্ন লিখক':'🎤 মাত কৈ উত্তৰ লিখক';document.getElementById('retryAssameseVoiceBtn')?.remove();b.insertAdjacentHTML('afterend','<button type="button" id="retryAssameseVoiceBtn" onclick="retryLastFailedAssameseVoice()" style="display:block;margin:8px 0;padding:10px 14px;border:1px solid #147d64;border-radius:10px;background:#e8fff6;color:#075b48;font-weight:700">🔁 আগৰ ৰেকৰ্ড কৰা অসমীয়া মাত পুনৰ চেষ্টা কৰক</button>');}
-    const raw=e?.name==='AbortError'?'সেৱাৰ পৰা উত্তৰ আহিবলৈ ৯০ ছেকেণ্ডতকৈ বেছি সময় লাগিল। আপোনাৰ ৰেকৰ্ডিং ৰখা হৈছে।':(e?.message||String(e));
+    const raw=e?.name==='AbortError'?'সেৱাৰ পৰা উত্তৰ আহিবলৈ ১৩০ ছেকেণ্ডতকৈ বেছি সময় লাগিল। আপোনাৰ ৰেকৰ্ডিং ৰখা হৈছে।':(e?.message||String(e));
     const message=String(raw).replace(/\[object Object\]/g,'Server-এ ভুলৰ তথ্য object হিচাপে পঠিয়াইছে।');
     const retry=retryCount===0 && confirm('❌ অসমীয়া মাতৰ লিখনী তৈয়াৰ নহ’ল।\n\nৰেকৰ্ড কৰা মাতটো মচি যোৱা নাই; এইটো পুনৰ চেষ্টা কৰিবনে?\n\nকাৰণ: '+message);
     if(retry){await transcribeAssameseBlob(blob,targetId,afterCb,1);return;}
