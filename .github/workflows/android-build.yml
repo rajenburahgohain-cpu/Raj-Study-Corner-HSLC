@@ -1,4 +1,4 @@
-name: Build Assamese Sahayika APK and AAB (Play Prep V64)
+name: Build Assamese Sahayika APK and AAB (Play Prep V65 - Min SDK 24)
 
 on:
   workflow_dispatch:
@@ -121,7 +121,7 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
-      - name: Set Android API level to 36
+      - name: Set Android API level to 36 and Minimum SDK to 24
         shell: bash
         run: |
           set -e
@@ -135,16 +135,24 @@ jobs:
               if path.name == 'variables.gradle':
                   text = re.sub(r'(compileSdkVersion\s*=\s*)\d+', r'\g<1>36', text)
                   text = re.sub(r'(targetSdkVersion\s*=\s*)\d+', r'\g<1>36', text)
+                  if re.search(r'minSdkVersion\s*=\s*\d+', text):
+                      text = re.sub(r'(minSdkVersion\s*=\s*)\d+', r'\g<1>24', text)
+                  else:
+                      text = re.sub(r'(ext\s*\{)', r'\g<1>\n    minSdkVersion = 24', text, count=1)
               else:
                   text = re.sub(r'(compileSdk\s*(?:=| )\s*)\d+', r'\g<1>36', text)
                   text = re.sub(r'(targetSdk\s*(?:=| )\s*)\d+', r'\g<1>36', text)
+                  if re.search(r'minSdk(?:Version)?\s*(?:=| )\s*\d+', text):
+                      text = re.sub(r'(minSdk(?:Version)?\s*(?:=| )\s*)\d+', r'\g<1>24', text)
               path.write_text(text, encoding='utf-8')
           text = '\n'.join(p.read_text(encoding='utf-8') for p in candidates if p.exists())
           if not re.search(r'compileSdkVersion\s*=\s*36|compileSdk\s*(?:=| )\s*36', text):
               raise SystemExit('::error::Could not set compileSdk to API 36.')
           if not re.search(r'targetSdkVersion\s*=\s*36|targetSdk\s*(?:=| )\s*36', text):
               raise SystemExit('::error::Could not set targetSdk to API 36.')
-          print('compileSdk and targetSdk configured for Android API 36.')
+          if not re.search(r'minSdkVersion\s*=\s*24|minSdk(?:Version)?\s*(?:=| )\s*24', text):
+              raise SystemExit('::error::Could not set minSdk to API 24.')
+          print('compileSdk=36, targetSdk=36 and minSdk=24 configured.')
           PYCODE
 
       - name: Configure Android permissions and AdMob App ID
